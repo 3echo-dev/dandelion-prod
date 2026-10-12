@@ -1,0 +1,9 @@
+Copyright (c) 2026 3echo. All rights reserved.
+
+This plugin is provided to Dandelion by 3echo. It may not be copied, shared or redistributed
+outside the terms agreed between 3echo and Dandelion.
+
+Third-party components keep their own licences:
+
+- research/          MIT (research/LICENSE)
+- vendor/3echo-motion/  GNU AGPL-3.0 (vendor/3echo-motion/LICENSE and NOTICE.md)

@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "research": {
+      "type": "stdio",
+      "command": "node",
+      "args": [
+        "--no-warnings",
+        "${CLAUDE_PLUGIN_ROOT}/research/server/index.mjs"
+      ]
+    }
+  }
+}

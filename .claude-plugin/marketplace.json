@@ -1,0 +1,20 @@
+{
+  "name": "dandelion-prod",
+  "owner": {
+    "name": "3echo",
+    "url": "https://github.com/3echo-dev"
+  },
+  "plugins": [
+    {
+      "name": "dandelion-prod",
+      "displayName": "Dandelion Prod",
+      "source": "./",
+      "description": "Prod-Lite: a first cut in, a finished master out. People kept as shot, new backgrounds behind them, a grade and titles. Every gate is signed off by a person.",
+      "version": "0.1.0",
+      "author": {
+        "name": "3echo"
+      }
+    }
+  ],
+  "description": "Production tooling from 3echo for Dandelion."
+}
