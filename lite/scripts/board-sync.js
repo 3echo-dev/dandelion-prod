@@ -83,7 +83,7 @@ if (cmd === 'open') {
   const project = {
     title: job.title, client: job.client, status: 'intake', createdAt: now(), createdBy: 'pipeline',
     aspectRatio: job.aspectRatio || '', durationSec: (job.source || {}).duration || null, firstCut: (job.source || {}).name || '',
-    brief: ctx('brief.md'), context: ctx('context.md'),
+    brief: ctx('brief.md'), context: ctx('context.md'), deliver: (job.deliver && job.deliver.nuke) ? 'nuke' : 'master',
   };
   lib.appendOutbox(CWD, client, jobId, { collection: 'projects', docId: jobId, data: { kind: 'lite', ...project } }); // kind: the board draws the Prod-Lite pipeline
   for (const it of ITEMS) lib.appendOutbox(CWD, client, jobId, { collection: 'items', docId: it, data: { status: 'pending', version: 0, summary: '', updatedAt: now(), updatedBy: 'pipeline' } });
@@ -303,6 +303,7 @@ if (cmd === 'land') {
   lib.ensureDir(path.dirname(ip));
   fs.writeFileSync(ip, records.map(r => JSON.stringify(r)).join('\n') + (records.length ? '\n' : ''));
   // A quoted request the person approved can proceed.
+  for (const r of records) if (r.type === 'compositor' && r.status === 'open') changed.push('compositor ' + r.id + ' requested by ' + (r.from || '?') + ': nuke.js export --wait, then wait for the shots (nuke.js return)');
   for (const r of records) if (r.type === 'generate' && r.status === 'open' && r.approvedBy) changed.push('request ' + r.id + ' approved: ' + (r.text || '') + (r.credits ? ' (' + r.credits + ' credits)' : ''));
   for (const r of records) if (r.status === 'waiting' && r.waitingOn) {
     const on = records.find(x => x.id === r.waitingOn);

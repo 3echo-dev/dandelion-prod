@@ -83,7 +83,7 @@ const VALUE_FLAGS = ['--root', '--also', '--out', '--config', '--job', '--client
   '--skills', '--started', '--decided-at', '--channel', '--title', '--activity', '--substep',
   '--agents', '--text', '--options', '--blocks', '--credits', '--quote', '--timeout', '--caption',
   // Prod-Lite's own
-  '--as', '--agent', '--cut', '--brief', '--context', '--ratio', '--background-per', '--url', '--tag', '--page', '--license',
+  '--as', '--agent', '--cut', '--brief', '--context', '--ratio', '--background-per', '--deliver', '--url', '--tag', '--page', '--license',
   '--threshold', '--min-shot', '--cuts', '--start', '--keys', '--job-ref', '--from', '--video-url', '--asset-id', '--strip', '--poster',
   '--set', '--panels', '--video-id', '--image-id', '--at'];
 

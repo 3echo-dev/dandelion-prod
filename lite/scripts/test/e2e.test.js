@@ -248,6 +248,39 @@ try {
     assert.throws(() => node('gdocs.js', [C, JOB, 'link', '--item', 'review', '--url', 'https://example.com/x']));
   });
 
+  step('Nuke hand-off: scripts out, a shot back, the master waits', () => {
+    const ws = require('fs');
+    // A plain export is a deliverable: nothing waits.
+    assert.match(node('nuke.js', [C, JOB, 'export']), /a deliverable, nothing waits/);
+    // Gate B's "Send to compositor": the board's request, then the export that answers it.
+    node('board-sync.js', ['land', C, JOB, landed([['inbox', 'cmp1', { type: 'compositor', gate: 'B', from: 'creative-director', status: 'open', createdAt: '2026-10-09T04:00:00Z' }]])]);
+    assert.match(node('nuke.js', [C, JOB, 'export', '--wait', '--shots', 'S01', '--by', 'creative-director']), /the master waits/);
+    node('board-sync.js', ['push', C, JOB]);
+    assert.strictEqual(db('inbox', 'cmp1').status, 'answered');
+    assert.strictEqual(db('projects', JOB).handoff.status, 'out');
+    const dir = path.join(JD, 'handoff', 'nuke-v2', 'S01');
+    for (const f of ['S01.nk', 'plate.mp4', 'background.png', 'ref_pipeline_comp.mp4']) assert.ok(ws.existsSync(path.join(dir, f)), f);
+    const nkText = ws.readFileSync(path.join(dir, 'S01.nk'), 'utf8');
+    assert.match(nkText, /^#! nuke -nx\nversion /);
+    assert.match(nkText, /file "\\\[file dirname \\\[value root\.name\]\]\/plate\.mp4"/);
+    assert.match(nkText, /push \$NBG\npush \$NFG\nMerge2 \{/, 'background is B, the person is A');
+    assert.strictEqual((nkText.match(/\{/g) || []).length, (nkText.match(/\}/g) || []).length);
+    // A wrong render is refused; the right one becomes the shot's composite.
+    const brief0 = read('hybrid-brief.json'); const p0 = brief0.panels.find(p => p.id === 'S01');
+    const short = path.join(ROOT, 'short.mp4');
+    sh('ffmpeg', ['-v', 'error', '-y', '-i', p0.composite.file, '-frames:v', '3', short]);
+    assert.throws(() => node('nuke.js', [C, JOB, 'return', '--shot', 'S01', '--file', short]));
+    const rd = path.join(dir, 'render');
+    sh('ffmpeg', ['-v', 'error', '-y', '-i', p0.composite.file, '-start_number', '1', path.join(rd, 'S01.%04d.png')]);
+    assert.match(node('nuke.js', [C, JOB, 'return', '--shot', 'S01', '--file', rd]), /Every shot of this round is back/);
+    const p1 = read('hybrid-brief.json').panels.find(p => p.id === 'S01');
+    assert.strictEqual(p1.composite.source, 'nuke'); assert.strictEqual(p1.composite.pipelineFile, p0.composite.file);
+    assert.ok(/S01-nuke-v1\.mp4$/.test(p1.composite.file) && ws.existsSync(p1.composite.file));
+    node('board-sync.js', ['push', C, JOB]);
+    assert.strictEqual(db('projects', JOB).handoff.status, 'returned');
+    assert.match(node('nuke.js', [C, JOB, 'status']), /nuke-v2 returned: S01 returned/);
+  });
+
   step('the real board: pins for what a person writes, kept versions for what the run writes', () => {
     env.PROD_LITE_BOARD_URL = 'https://claude.ai/artifact/test';
     try {

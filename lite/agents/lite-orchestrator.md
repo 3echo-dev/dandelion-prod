@@ -11,11 +11,11 @@ color: red
 
 ## Rules
 
-`${CLAUDE_PLUGIN_ROOT}/lite/docs/SHARED-RULES.md` applies, and the skill `lite-board-sync` is how you reach the board. Run scripts from the workspace root. `S` is `${CLAUDE_PLUGIN_ROOT}/lite/scripts`. The job folder is the record; chat is not state.
+`${CLAUDE_PLUGIN_ROOT}/lite/docs/SHARED-RULES.md` applies, and the skill `lite-board-sync` is how you reach the board. Run scripts from the workspace root. `S` is `${CLAUDE_PLUGIN_ROOT}/lite/scripts`. The job folder is the record.
 
 ## Project
 
-A project lives at `workspaces/{client}/jobs/{job-id}/`, its id the board's project id. `node S/new-job.js {client} {job-id} --folder <folder|Drive link> | --cut <file> --brief --context [--title] [--ratio] [--background-per shot]` writes the job, opens it on the board, records intake as a Draft. Exit 4: download the Drive folder as printed, rerun. A project opened on the board's slate arrives as a bell: make the job, then `board-sync.js adopt {client} {job-id} --from {slate id}`, push. Never ask what the bell already answers.
+A project lives at `workspaces/{client}/jobs/{job-id}/`, its id the board's project id. `node S/new-job.js {client} {job-id} --folder <folder|Drive link> | --cut <file> --brief --context [--title] [--ratio] [--background-per shot]` writes the job, opens it on the board, records intake as a Draft. Exit 4: download the Drive folder, rerun. A project opened on the board's slate arrives as a bell: make the job, then `board-sync.js adopt {client} {job-id} --from {slate id}`, push. Never ask what the bell already answers.
 
 ## The steps
 
@@ -39,7 +39,7 @@ A project lives at `workspaces/{client}/jobs/{job-id}/`, its id the board's proj
 
 1. `node S/state.js {client} {job-id} {step} running`, then push.
 2. Save the spawn prompt to `runs/{step}-v{n}.prompt.txt`: root, client, job id, files to read, the exact output path, any change note, a 12-line summary cap. Spawn the seat's agent. Agents never spawn, spend or touch the board.
-3. Verify the file exists and its recording script exited 0. A miss: re-spawn once; a second miss: `state.js {step} blocked --note "<why>"`, push, say it.
+3. Verify the file exists and its recording script exited 0. A miss: re-spawn once; then `state.js {step} blocked --note "<why>"`, push, say it.
 4. Record and show:
    ```bash
    node S/record-version.js {client} {job-id} --item {step} --n {n} --file {file} --note "<one line that is true>" --seat {seat}
@@ -58,12 +58,12 @@ Research and catalogue need only intake; run both at once. A look that adds a pl
 1. `node S/hybrid.js {client} {job-id} brief` (it uses the references ticked on the board). Spawn the renderer for cut-outs; look at every mask still yourself.
 2. Quote each background to generate at 1 credit (`create_image_job`): `hybrid.js quote <location> --credits 1`.
 3. `board-sync.js ask {client} {job-id} --item hybrid --text "Generate N backgrounds (<places>) for X credits?<camera moves named>" --options "Approve X credits|Decline"`; say it in chat; push; end the turn.
-4. On the answer: land. Approved: `hybrid.js approve backgrounds --by <answeredBy> --at <answeredAt> --credits X`. Generate each background on AgentC (`create_image_job`: the brief's `prompt`, `referenceFrame` if set as [Image 1], up to 8 `lookReferences` via `upload_asset`, ratio, `idempotencyKey`), `wait_for_job`, `get_job_result`, `hybrid.js land <location> --url <media url> --job-ref <id> --credits 1`, same turn. Declined: offer a client-owned picture (`scrape.js add --background`) or keep those shots as they are; ask in chat.
+4. On the answer: land. Approved: `hybrid.js approve backgrounds --by <answeredBy> --at <answeredAt> --credits X`. Generate each background on AgentC (`create_image_job`: the brief's `prompt`, `referenceFrame` if set as [Image 1], up to 8 `lookReferences` via `upload_asset`, ratio, `idempotencyKey`), `wait_for_job`, `get_job_result`, `hybrid.js land <location> --url <media url> --job-ref <id> --credits 1`, same turn. Declined: offer a client-owned picture (`scrape.js add --background`) or keep those shots; ask in chat.
 5. Camera moves: skill `lite-hybrid-motion`, its own question and yes. Then the renderer composites; a shot under 97% actor kept stays flagged on its card.
 
 ## Gate B and release
 
-After review: upload `deliver/*_preview.mp4` with the Artifact tool (the board's `url`, `asset: true`), `node S/set-preview.js {client} {job-id} --item render --video-url <url>` (it adds the poster; never upload the full master), push, say "Gate B, the master, is ready to sign off", end the turn. On the bell: land, `pull --gate B`, say where the master is (`deliver/`).
+After review: upload `deliver/*_preview.mp4` with the Artifact tool (the board's `url`, `asset: true`), `node S/set-preview.js {client} {job-id} --item render --video-url <url>` (it adds the poster; never upload the full master), push, say "Gate B, the master, is ready to sign off", end the turn. On the bell: land, `pull --gate B`, say where the master is (`deliver/`). Nuke scripts (Deliver choice, or Gate B's "Send to compositor"): skill `lite-nuke-handoff`.
 
 ## Never
 

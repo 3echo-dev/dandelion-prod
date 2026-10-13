@@ -3,7 +3,7 @@
 //
 //   node new-job.js <client> <job-id> --cut <video> --brief <file.md|"text"> [--context <file|"text">]
 //   node new-job.js <client> <job-id> --folder <folder|Drive link> [--cut <name in it>] [--brief ...] [--context ...]
-//                   [--title "..."] [--ratio 16:9] [--background-per location|shot] [--force]
+//                   [--title "..."] [--ratio 16:9] [--background-per location|shot] [--deliver master|nuke] [--force]
 //                   [--folder-source <Drive link the folder was downloaded from>]
 //
 // Copies the first cut into the job (media/source/), keeps the brief and context as written
@@ -177,6 +177,8 @@ const job = {
   hybrid: { backgroundPer: per === 'shot' ? 'panel' : 'location', cutout: 'auto', match: 0.5, motionPanels: [], motion: { resolution: '720p', keepActor: true, maxSec: 15 } },
   grade: { strength: 1.0 },
   render: { codec: 'h264', crf: 16 },
+  // What is handed over besides the master: nuke adds a Nuke script per replaced shot (nuke.py export).
+  deliver: { nuke: L.opt(argv, '--deliver') === 'nuke' },
 };
 J.saveJob(job);
 // The project on the board, then intake as a Draft for a person to approve (it is an XX step).

@@ -25,6 +25,7 @@ and the board, and asks before it installs anything.
 | First cut | only if it is not in the folder |
 | Brief | what the film is for, its length, the titles wanted |
 | Context | the new world, per scene if it differs: "the street becomes a 1920s shophouse row at golden hour" |
+| Deliver | the master, or the master plus a Nuke script per replaced shot |
 
 ## The steps
 
@@ -43,6 +44,17 @@ hybrid → grade → mograph → render → review → **Gate B, Master sign-off
 Backgrounds are generated on 3echo AgentC at 1 credit each, and only after a person says yes on
 the board. The plugin brings its own AgentC connection; sign in once with `/mcp` →
 `plugin:dandelion-prod:agentc` using the 3echo account whose credits the studio will spend.
+
+## Hand-offs and copies
+
+- **Nuke.** `lite/scripts/nuke.js` writes a folder per replaced shot: a `.nk` script that rebuilds the
+  master's composite node for node (key, spill, matte, background, light wrap), the plate, the
+  background and the reviewer's notes. It runs as a deliverable (the Deliver choice) or from Gate B's
+  **Send to compositor**, where the master waits until every shot comes back (`nuke.js return`) and
+  is then regraded, retitled and reviewed again.
+- **Google Docs and Sheets.** With the Google Drive connector, research, references, the shot list,
+  the look and the review are copied to a Drive folder per job and linked on each step's card.
+  The board stays the record; sign-offs happen there.
 
 ## Layout
 
