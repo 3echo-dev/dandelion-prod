@@ -31,14 +31,19 @@ description: >
 
 ## AgentC sign-in
 
-The plugin brings its own AgentC server (`agentc` in `.mcp.json`), but each person signs in once.
+AgentC can reach this session three ways, and any one is enough: a connector added in Claude's
+settings (Connectors, often shown as "AgentC, Web, Custom"), another 3echo plugin, or this plugin's
+own `agentc` server. The plugin's own server is the fallback for a computer that has none.
 
 a. **Declared?** `node "${CLAUDE_PLUGIN_ROOT}/lite/scripts/check-agentc.js"`. Exit 2 means the
    plugin copy is damaged: say so, suggest reinstalling the plugin, and stop this step.
-b. **Signed in?** Call `list_workspaces` (the `mcp__plugin_dandelion-prod_agentc__` one; free,
-   read-only). If it answers, go to d.
-c. **Not signed in** (the tool is missing, or it asks for authentication). Tell the person, in
-   these words or close to them, then end the turn and wait:
+b. **Already connected?** Look at the tools this session has for any `list_workspaces` from an
+   AgentC server, whatever its prefix (`mcp__claude_ai_AgentC__`, `mcp__agentc__`, `mcp__3echo__`,
+   `mcp__plugin_dandelion-prod_agentc__`, ...), and call it (free, read-only). The first one that
+   answers is the connection: say which one ("your AgentC connector") and go to d. Do not ask the
+   person to sign in again when one already answers.
+c. **None answers** (no such tool, or each asks for authentication). Tell the person, in these
+   words or close to them, then end the turn and wait:
    > To generate backgrounds, Dandelion Prod needs your 3echo AgentC sign-in (once per computer).
    > 1. Type `/mcp` and press Enter.
    > 2. Pick **plugin:dandelion-prod:agentc**, then **Authenticate**.
@@ -47,10 +52,11 @@ c. **Not signed in** (the tool is missing, or it asks for authentication). Tell 
    If `/mcp` does not list the server, ask them to restart Claude Code (servers load at start)
    and try again. When they say done, go back to b. After two failed tries, record it as still
    missing and go on with the other steps; never pretend it is connected.
-d. **Show what they signed in to.** Name each workspace with its credit balance, from
-   `list_workspaces`. If the balance is 0, say backgrounds cannot be generated until credits are
-   added. If there is more than one, list them all.
-   Never spend a credit in this step.
+d. **Show what they are connected to.** List every workspace with its credit balance, from
+   `list_workspaces`, so the person can see it is the account the studio means to spend from. If
+   a balance is 0, say backgrounds cannot be generated there until credits are added. If two
+   AgentC connections answer with different accounts, say so and ask which one jobs use. Never
+   spend a credit in this step.
 
 ## Rules
 
