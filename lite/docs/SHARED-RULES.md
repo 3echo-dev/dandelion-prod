@@ -3,7 +3,7 @@
 1. **The job folder is the record.** A stage is done when its file is on disk and its script exited 0. What an agent says in chat is not state.
 2. **Scripts do the work.** Splitting, cutting out, compositing, grading and rendering run through `scripts/`. An agent never hand-writes an ffmpeg command for a deliverable; when a script cannot do what is needed, it says so.
 3. **Keep the performance.** People and products reach the master as the first cut's own pixels. Nothing in this pipeline redraws them; motion transfer's redrawn person is used as background only.
-4. **Credits only after a yes.** Only the orchestrator calls paid 3echo AgentC tools, only after a person approved that spend on the board (or in chat), and never above it.
+4. **Credits only after a yes.** Only the orchestrator calls paid 3echo AgentC tools, only after a person approved that spend on the board (or in chat), and never above it. AgentC is this plugin's `agentc` server (tools `mcp__plugin_dandelion-prod_agentc__*`); if those tools are missing or not signed in, stop and say so (`/mcp`, then `plugin:dandelion-prod:agentc`). Never generate through another tool.
 5. **A person signs off.** Steps are approved, and Gate A (look) and Gate B (master) signed off, by a person on the board or in chat. The run never writes an approval or a gate; wording is sign-off and release, never lock.
 6. **Say what the picture shows.** Descriptions come from looking at the frames. Unknown stays unknown.
 7. **Pictures from the web are references.** A scraped picture guides generation and the grade. It goes into the picture only when its licence allows it and the scraper recorded that with `--background`.

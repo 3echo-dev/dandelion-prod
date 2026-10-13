@@ -21,8 +21,12 @@ description: >
 3. **The research browser (optional).** Research pages drawn by JavaScript need the browser helper
    described in `${CLAUDE_PLUGIN_ROOT}/research/README.md`. Ask before running the one-time
    `<venv python> -m playwright install chromium`; without it those pages read with lower coverage.
-4. **3echo AgentC.** New backgrounds are generated on AgentC (1 credit each, always asked first).
-   The connector must be connected in Claude for the run to generate; say so if it is not.
+4. **3echo AgentC.** New backgrounds and camera moves are generated on AgentC (1 credit per
+   background, always asked first). The plugin brings its own AgentC server (`agentc` in
+   `.mcp.json`); `node "${CLAUDE_PLUGIN_ROOT}/lite/scripts/check-agentc.js"` checks it is declared.
+   It still needs the person's 3echo sign-in once: ask them to run `/mcp`, pick
+   `plugin:dandelion-prod:agentc` and sign in. Confirm with `list_workspaces`, which also shows the
+   workspace and its credits; without it the run stops before the first background.
 5. **The board.** If `node "${CLAUDE_PLUGIN_ROOT}/lite/scripts/set-board.js" --show` says none is
    set, offer the `board-setup` skill.
 6. **Report** in one short list: what was already there, what was installed, what is still

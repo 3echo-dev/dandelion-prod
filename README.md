@@ -41,7 +41,8 @@ hybrid → grade → mograph → render → review → **Gate B, Master sign-off
 | lite-orchestrator | runs the steps and the board; the only one that spends credits |
 
 Backgrounds are generated on 3echo AgentC at 1 credit each, and only after a person says yes on
-the board.
+the board. The plugin brings its own AgentC connection; sign in once with `/mcp` →
+`plugin:dandelion-prod:agentc` using the 3echo account whose credits the studio will spend.
 
 ## Layout
 
@@ -52,6 +53,7 @@ the board.
 | `board/` | the board page (`board/src/board.html` is the source; `scripts/build-board.js` builds it) |
 | `vendor/3echo-motion/` | the motion-graphics composer (AGPL-3.0, see its licence) |
 | `skills/` | `install` and `board-setup` |
+| `hooks/` | the session-start check that the AgentC server is declared |
 
 ## Tests
 

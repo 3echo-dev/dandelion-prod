@@ -7,6 +7,10 @@
         "--no-warnings",
         "${CLAUDE_PLUGIN_ROOT}/research/server/index.mjs"
       ]
+    },
+    "agentc": {
+      "type": "http",
+      "url": "https://agentc.3echo.ai/api/mcp"
     }
   }
 }
