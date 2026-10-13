@@ -2,17 +2,23 @@
 """cutout: the plate-director's tool. Cuts the actor out of each plate as a transparent layer.
 
 Usage:
-    python cutout.py <client> <job-id> [--panel P03] [--method auto|chromakey|rembg]
-                     [--similarity 0.12] [--blend 0.08] [--model u2net]
+    python cutout.py <client> <job-id> [--panel P03] [--method auto|diffkey|chromakey|rembg]
+                     [--lo 0.18] [--hi 0.62] [--similarity 0.12] [--blend 0.08] [--model u2net]
 
 Run from the workspace root. Reads hybrid-brief.json (hybrid.js brief) and, per panel with a plate,
 writes footage/cutout/<panel>.mov: the plate's own pixels with an alpha channel (PNG codec in MOV),
 so the actor is never redrawn, only separated.
 
   auto       the screen colour sampled from the corners of the plate's picture (inside any letterbox
-             bars) decides: chromakey on any green or blue screen, otherwise rembg.
+             bars) decides: diffkey on any green or blue screen, otherwise rembg.
+  diffkey    colour-difference key (the method behind Keylight and Primatte-style keyers): opacity
+             from how much the screen channel exceeds the other two, scaled to the screen's own
+             level, then spill suppressed. Holds skin, hair and light denim solid where ffmpeg's
+             chromakey leaves them part see-through on a dark screen. --lo / --hi set where the
+             matte starts and ends as fractions of the screen's level (raise --lo to keep more
+             edge, lower --hi for a harder matte). No GPU, no AI.
   chromakey  ffmpeg chromakey on the screen colour sampled from the plate's corners, then despill.
-             Fast, no GPU, no AI.
+             Fast; can leave the actor partly transparent on a dark or uneven screen.
   rembg      AI segmentation per frame. The model is job.hybrid.rembgModel or --model, default
              u2net: the main subject, so what the actor holds (a product) is kept with them.
              u2net_human_seg keeps only the person and drops a held product; birefnet-general-lite
@@ -49,7 +55,7 @@ def probe(path):
 def detect_method(plate, info, area=None):
     """The plate's own screen colour, sampled from its picture's corners (inside any bars): any
     shade of green or blue means chroma key; otherwise AI segmentation."""
-    if key_colour(plate, info, area): return "chromakey", "corner-sample"
+    if key_colour(plate, info, area): return "diffkey", "corner-sample"
     return "rembg", "no-screen"
 
 def frame_at(plate, t, out):
@@ -112,6 +118,53 @@ def cut_chromakey(plate, out, colour, similarity, blend):
          "-vf", "format=rgba,chromakey=%s:%s:%s%s,format=rgba" % (colour["hex"], similarity, blend, despill),
          "-c:v", "png", "-pix_fmt", "rgba", str(out)])
 
+def cut_diffkey(plate, out, colour, info, lo=0.18, hi=0.62):
+    """Colour-difference key, frame by frame through raw pipes: alpha = 1 - (d - lo) / (hi - lo)
+    with d the screen channel minus the larger of the other two, lo and hi fractions of the
+    screen's own d (from the sampled key colour). Spill: the screen channel is capped at the
+    larger of the other two. Edge pixels have the screen colour taken out first (colour extraction),
+    and the matte is softened by about a pixel and choked slightly."""
+    import numpy as np
+    from PIL import Image, ImageFilter
+    w, h = info["width"], info["height"]
+    c = int(colour["hex"][2:], 16); kr, kg, kb = (c >> 16) & 255, (c >> 8) & 255, c & 255
+    ch, o1, o2 = (1, 0, 2) if colour["kind"] == "green" else (2, 0, 1)
+    scr = max(20.0, (kg - max(kr, kb)) if colour["kind"] == "green" else (kb - max(kr, kg)))
+    lo_v, hi_v = scr * lo, scr * max(hi, lo + 0.05)
+    key = np.array([kr, kg, kb], np.float32)
+    choke = 0.12
+    dec = subprocess.Popen(["ffmpeg", "-v", "error", "-i", str(plate), "-an", "-f", "rawvideo", "-pix_fmt", "rgb24", "-"], stdout=subprocess.PIPE)
+    enc = subprocess.Popen(["ffmpeg", "-v", "error", "-y", "-f", "rawvideo", "-pix_fmt", "rgba", "-s", "%dx%d" % (w, h),
+                            "-framerate", "%.6f" % info["fps"], "-i", "-", "-c:v", "png", "-pix_fmt", "rgba", str(out)], stdin=subprocess.PIPE)
+    n, size = 0, w * h * 3
+    try:
+        while True:
+            buf = dec.stdout.read(size)
+            if len(buf) < size: break
+            a = np.frombuffer(buf, np.uint8).reshape(h, w, 3).astype(np.float32)
+            other = np.maximum(a[..., o1], a[..., o2])
+            d = a[..., ch] - other
+            raw = 1.0 - np.clip((d - lo_v) / (hi_v - lo_v), 0.0, 1.0)
+            # Colour extraction: an edge pixel is a mix of the person and the screen, so take the
+            # screen out (C = a*F + (1-a)*K, solved for F). This is what removes the olive rim a
+            # plain despill leaves round hair, hands and hems.
+            safe = np.maximum(raw, 0.05)[..., None]
+            fg = np.clip((a - (1.0 - safe) * key) / safe, 0.0, 255.0)
+            fg = np.where((raw > 0.05)[..., None], fg, a)
+            # Spill: the screen channel no higher than the larger of the other two.
+            o = np.maximum(fg[..., o1], fg[..., o2])
+            fg[..., ch] = np.minimum(fg[..., ch], o)
+            # Matte: soften by about a pixel, then choke a little so the outermost mixed pixels go.
+            m = Image.fromarray((raw * 255).astype(np.uint8)).filter(ImageFilter.GaussianBlur(1.0))
+            al = np.clip((np.asarray(m, np.float32) / 255.0 - choke) / (0.96 - choke), 0.0, 1.0)
+            a = fg
+            enc.stdin.write(np.dstack([a, al * 255.0]).clip(0, 255).astype(np.uint8).tobytes())
+            n += 1
+    finally:
+        enc.stdin.close(); enc.wait(); dec.stdout.close(); dec.wait()
+    if enc.returncode != 0 or not n: raise RuntimeError("diffkey: the cut-out could not be written (%d frames)" % n)
+    return n
+
 REMBG_MODELS = ("u2net", "isnet-general-use", "birefnet-general-lite", "birefnet-general", "u2net_human_seg")
 
 def cut_rembg(plate, out, info, model="u2net"):
@@ -165,7 +218,7 @@ def clean_frame(plate, cut, info, out_png):
         shutil.rmtree(tmp, ignore_errors=True)
 
 def main(argv):
-    if len(argv) < 3: die("usage: cutout.py <client> <job-id> [--panel P03] [--method auto|chromakey|rembg] [--similarity 0.12] [--blend 0.08]", 2)
+    if len(argv) < 3: die("usage: cutout.py <client> <job-id> [--panel P03] [--method auto|diffkey|chromakey|rembg] [--lo 0.18] [--hi 0.62] [--similarity 0.12] [--blend 0.08]", 2)
     client, job_id = argv[1], argv[2]
     opt = lambda k, d: argv[argv.index(k) + 1] if k in argv and argv.index(k) + 1 < len(argv) else d
     job_dir = (Path(os.environ.get("PROD_LITE_ROOT") or ".") / "workspaces" / client / "jobs" / job_id).resolve()
@@ -179,6 +232,7 @@ def main(argv):
     if model not in REMBG_MODELS: die("unknown rembg model %s (one of %s)" % (model, ", ".join(REMBG_MODELS)), 2)
     similarity = float(opt("--similarity", str(hyb.get("similarity", 0.12))))
     blend = float(opt("--blend", str(hyb.get("blend", 0.08))))
+    lo = float(opt("--lo", str(hyb.get("keyLo", 0.18)))); hi = float(opt("--hi", str(hyb.get("keyHi", 0.62))))
     only = opt("--panel", None)
     out_dir = Path(job["driveFolder"]) / "footage" / "cutout"; out_dir.mkdir(parents=True, exist_ok=True)
     prev_dir = job_dir / "previews" / "hybrid"; prev_dir.mkdir(parents=True, exist_ok=True)
@@ -188,24 +242,26 @@ def main(argv):
         plate = Path(p["plate"]); info = probe(plate); area = picture_area(plate, info)
         method, how = (method_opt, "asked") if method_opt != "auto" else detect_method(plate, info, area)
         out = out_dir / (p["id"] + ".mov"); frames = None; colour = None
-        if method == "chromakey":
+        if method in ("diffkey", "chromakey"):
             colour = key_colour(plate, info, area)
             if not colour: die("%s: no green or blue screen found in the plate's corners; use --method rembg" % p["id"], 3)
-            cut_chromakey(plate, out, colour, similarity, blend)
+            if method == "diffkey": frames = cut_diffkey(plate, out, colour, info, lo, hi)
+            else: cut_chromakey(plate, out, colour, similarity, blend)
         elif method == "rembg":
             frames = cut_rembg(plate, out, info, model)
         else:
             die("unknown method " + method, 2)
         mask_png = prev_dir / (p["id"] + "-mask.png")
         cover = coverage_and_mask(out, info, mask_png, area)
-        p["cutout"] = {"method": method, "decidedBy": how, "file": str(out).replace("\\", "/"), "sha256": sha256(out), "keyColour": colour, "similarity": similarity if method == "chromakey" else None,
+        p["cutout"] = {"method": method, "decidedBy": how, "file": str(out).replace("\\", "/"), "sha256": sha256(out), "keyColour": colour, "similarity": similarity if method == "chromakey" else None, "keyRange": [lo, hi] if method == "diffkey" else None,
                        "blend": blend if method == "chromakey" else None, "frames": frames, "model": model if method == "rembg" else None, "actorCoveragePct": cover, "mask": str(mask_png).replace("\\", "/"), "pictureArea": area}
         clean_png = prev_dir / (p["id"] + "-clean.png")
         clean_frame(plate, out, info, clean_png)
         p["cutout"]["cleanFrame"] = str(clean_png).replace("\\", "/")
         # The background this panel opens takes the clean frame as its framing reference.
         bg = brief.get("backgrounds", {}).get(p.get("background") or "")
-        if bg and bg.get("source") == "generate" and bg.get("status") != "delivered" and (bg.get("panels") or [None])[0] == p["id"]:
+        # (Not for a screen plate: its clean frame is flat screen colour, nothing to frame a place by.)
+        if bg and bg.get("source") == "generate" and bg.get("status") != "delivered" and (bg.get("panels") or [None])[0] == p["id"] and method == "rembg":
             bg["referenceFrame"] = p["cutout"]["cleanFrame"]
         p["composite"] = None; p["status"] = "cut-out"
         warn = "" if 2 <= cover <= 85 else ("  WARNING: the cut-out keeps %s%% of the frame; check the mask before compositing" % cover)

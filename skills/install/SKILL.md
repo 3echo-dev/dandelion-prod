@@ -24,9 +24,13 @@ description: >
 4. **3echo AgentC: walk the person through it; never skip it.** New backgrounds and camera moves
    are generated on AgentC (1 credit per background, always asked first). Go through the
    "AgentC sign-in" steps below, then come back here.
-5. **The board.** If `node "${CLAUDE_PLUGIN_ROOT}/lite/scripts/set-board.js" --show` says none is
+5. **Google Docs and Sheets copies (optional).** Look for a Google Drive tool (`create_file`, any
+   prefix). Present: say "Research, references, the shot list, the look and the review will also
+   go to Google Docs and Sheets, linked on the board". Absent: offer it once (claude.ai, Settings,
+   Connectors, Google Drive, Connect, then restart this session); a no is fine, the board has it all.
+6. **The board.** If `node "${CLAUDE_PLUGIN_ROOT}/lite/scripts/set-board.js" --show` says none is
    set, offer the `board-setup` skill.
-6. **Report** in one short list: what was already there, what was installed, what is still
+7. **Report** in one short list: what was already there, what was installed, what is still
    missing and why.
 
 ## AgentC sign-in

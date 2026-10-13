@@ -13,6 +13,7 @@ it untouched. Writes:
   deliver/<title>_master.mp4        H.264 CRF from job.json render.crf (16), AAC 320k
   deliver/<title>_master.mov        ProRes 422 HQ, with --prores
   deliver/<title>_preview.mp4       720p, for the board
+  deliver/<title>_poster.jpg        one frame of the preview, under 140 KB, the board player's poster
   previews/final-sheet.jpg          every shot's middle frame from the master, for the interrogator
 
 and render.json. It then checks the master: frame count equal to the first cut's, duration within
@@ -90,7 +91,10 @@ def main(argv):
     for k, o in enumerate(overlays):
         j = len(inputs) + k; st = float(o["start"]); en = st + float(o["durationSec"])
         fc.append("[%d:v]scale=%d:%d,format=yuva420p[o%d]" % (j, W, H, k))
-        fc.append("[%s][o%d]overlay=0:0:eof_action=pass:enable='between(t,%.4f,%.4f)'[m%d]" % (last, k, st, en, k))
+        # offsetY moves the overlay up (negative) or down (positive) by that share of the frame height:
+        # the templates centre their text, which on a vertical cut can land on a face.
+        dy = int(round(max(-0.45, min(0.45, float(o.get("offsetY") or 0))) * H))
+        fc.append("[%s][o%d]overlay=0:%d:eof_action=pass:enable='between(t,%.4f,%.4f)'[m%d]" % (last, k, dy, st, en, k))
         last = "m%d" % k
     fc.append("[%s]format=yuv420p[vout]" % last)
     out_dir = job_dir / "deliver"; out_dir.mkdir(parents=True, exist_ok=True)
@@ -107,6 +111,12 @@ def main(argv):
         outs["prores"] = mov
     preview = out_dir / (slug + "_preview.mp4")
     run(["ffmpeg", "-v", "error", "-y", "-i", str(master), "-vf", "scale=-2:'min(720,ih)'", "-c:v", "libx264", "-crf", "26", "-preset", "veryfast", "-c:a", "aac", "-b:a", "128k", "-movflags", "+faststart", str(preview)])
+    # Poster for the board's player: one frame of the preview at its own shape, small enough for the card.
+    poster = out_dir / (slug + "_poster.jpg")
+    pt = (inputs[0][0]["frames"] / 2) / fps if inputs else 0
+    for q in (4, 7, 11, 16):
+        run(["ffmpeg", "-v", "error", "-y", "-ss", "%.4f" % pt, "-i", str(preview), "-frames:v", "1", "-vf", "scale=-2:'min(640,ih)'", "-q:v", str(q), str(poster)])
+        if poster.stat().st_size <= 140 * 1024: break
     # Checks.
     m = info(master); problems = []
     if m["frames"] != total: problems.append("master has %d frames, the first cut %d" % (m["frames"], total))
@@ -126,11 +136,11 @@ def main(argv):
     for p in thumbs: p.unlink()
     rec = {"renderedAt": __import__("datetime").datetime.now().astimezone().isoformat(timespec="seconds"),
            "files": {k: {"file": str(v).replace("\\", "/"), "sha256": sha256(v), "bytes": v.stat().st_size} for k, v in outs.items()},
-           "preview": str(preview).replace("\\", "/"), "sheet": str(sheet_p).replace("\\", "/"), "frames": m["frames"], "duration": m["duration"],
+           "preview": str(preview).replace("\\", "/"), "poster": str(poster).replace("\\", "/"), "sheet": str(sheet_p).replace("\\", "/"), "frames": m["frames"], "duration": m["duration"],
            "overlays": [o["n"] for o in overlays], "shots": {s["id"]: (graded.get(s["id"]) or {}).get("sha256") for s, _ in inputs}, "checks": problems or "ok"}
     (job_dir / "render.json").write_text(json.dumps(rec, indent=2) + "\n", encoding="utf-8")
     print("master: %s (%d frames, %.2f s, %d overlay(s))" % (master.name, m["frames"], m["duration"], len(overlays)))
-    print("preview: " + preview.name + "; sheet: previews/final-sheet.jpg")
+    print("preview: " + preview.name + "; poster: " + poster.name + "; sheet: previews/final-sheet.jpg")
     if problems: print("CHECK FAILED: " + "; ".join(problems)); sys.exit(1)
     print("checks: ok")
 

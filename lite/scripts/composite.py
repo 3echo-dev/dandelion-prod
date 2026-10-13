@@ -2,12 +2,20 @@
 """composite: the composite-director's tool. Lays each cut-out actor over its location's background.
 
 Usage:
-    python composite.py <client> <job-id> [--panel P03] [--match 0.5] [--min-preserved 97] [--min-regen 75]
+    python composite.py <client> <job-id> [--panel P03] [--match 0.5] [--defocus 0] [--wrap 0.5] [--tint 0] [--min-preserved 97] [--min-regen 75]
 
 Run from the workspace root after cutout.py. Per panel with a cut-out and a ready background
 (library or delivered in hybrid-brief.json) it writes footage/composite/<panel>.mp4: the background
 scaled to cover the plate's picture (inside any letterbox bars, which stay black), its brightness nudged towards the actor's (--match, 0 = off),
-the cut-out laid on top, the plate's own sound kept. It then checks the performance was not touched:
+the cut-out laid on top, the plate's own sound kept. --defocus N (with --panel; kept on the panel as
+defocus) blurs a still background by N pixels at 1080 wide, for a close-up shot on a long lens whose
+generated background came back too sharp. Over a still background two finishing touches a
+compositor would add: --wrap (0 to 1, default 0.5) lets the softened background's light bleed a few
+pixels onto the person's edges, so a studio-lit actor sits in the place's light instead of on top
+of it; --tint (0 to 1, default 0, off) moves the person's overall colour that share of the way towards
+the background's average (a white balance, never a redraw: the performance check still applies).
+Use it for an evenly lit place such as an interior; outdoors the average is sky and sea, which
+cools a person the sun should warm, so it stays off and the grade does that work. It then checks the performance was not touched:
 on five frames it compares the actor's pixels in the composite with the plate's (inside the fully
 opaque part of the cut-out) and records the share kept. Below --min-preserved the panel is flagged,
 never passed silently. A before/after still (plate | composite) goes to previews/hybrid/ for the board.
@@ -49,6 +57,56 @@ def probe(path):
 def grab(src, t, out, rgba=False):
     run(["ffmpeg", "-v", "error", "-y", "-ss", "%.3f" % t, "-i", str(src), "-frames:v", "1"] + (["-pix_fmt", "rgba"] if rgba else []) + [str(out)])
 
+def comp_still(bg_canvas, cut, plate, out, info, dur, wrap, tint, audio, screen=None):
+    """Composite a still background in numpy, with light wrap and a colour match. bg_canvas is the
+    prepared W x H RGB background (cover, defocus, brightness and bars already applied)."""
+    import numpy as np
+    from PIL import Image, ImageFilter
+    W, H, fps = info["width"], info["height"], info["fps"]
+    bg = np.asarray(bg_canvas, np.float32)
+    half = (max(1, W // 2), max(1, H // 2))
+    k = W / 1080.0
+    bgb = np.asarray(bg_canvas.resize(half).filter(ImageFilter.GaussianBlur(15 * k)).resize((W, H)), np.float32)
+    dec = subprocess.Popen(["ffmpeg", "-v", "error", "-i", str(cut), "-f", "rawvideo", "-pix_fmt", "rgba", "-"], stdout=subprocess.PIPE)
+    cmd = ["ffmpeg", "-v", "error", "-y", "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", "%dx%d" % (W, H), "-framerate", "%.6f" % fps, "-i", "-", "-i", str(plate), "-map", "0:v"]
+    if audio: cmd += ["-map", "1:a", "-c:a", "aac", "-b:a", "192k"]
+    cmd += ["-c:v", "libx264", "-preset", "medium", "-crf", "16", "-pix_fmt", "yuv420p", "-t", "%.3f" % dur, str(out)]
+    enc = subprocess.Popen(cmd, stdin=subprocess.PIPE)
+    gains, n, size = None, 0, W * H * 4
+    try:
+        while True:
+            buf = dec.stdout.read(size)
+            if len(buf) < size: break
+            f = np.frombuffer(buf, np.uint8).reshape(H, W, 4).astype(np.float32)
+            fg, al = f[..., :3], f[..., 3:] / 255.0
+            if gains is None:
+                # The colour match, fixed from the first frame so it cannot flicker.
+                body = al[..., 0] > 0.9
+                if tint > 0 and body.any():
+                    fm = fg[body].mean(0) + 1.0; bm = bg.reshape(-1, 3).mean(0) + 1.0
+                    g = ((bm / bm.mean()) / (fm / fm.mean())) ** tint
+                    gains = (g / (g * np.array([0.299, 0.587, 0.114])).sum()).astype(np.float32)
+                else:
+                    gains = np.ones(3, np.float32)
+            fg = np.clip(fg * gains, 0, 255)
+            comp = fg * al + bg * (1.0 - al)
+            # Edge despill: where the person blends into the place, no channel of the old screen
+            # may stand above the other two (the source's 4:2:0 colour bleeds it back in).
+            band = (al[..., 0] > 0.02) & (al[..., 0] < 0.995)
+            if screen in ("green", "blue") and band.any():
+                ch, o1, o2 = (1, 0, 2) if screen == "green" else (2, 0, 1)
+                c = comp[band]; c[:, ch] = np.minimum(c[:, ch], np.maximum(c[:, o1], c[:, o2]) + 1.0); comp[band] = c
+            if wrap > 0:
+                inv = Image.fromarray(((1.0 - al[..., 0]) * 255).astype(np.uint8)).resize(half).filter(ImageFilter.GaussianBlur(6 * k)).resize((W, H))
+                edge = (al[..., 0] * np.asarray(inv, np.float32) / 255.0)[..., None] * wrap
+                comp = comp + edge * (bgb - comp)
+            enc.stdin.write(np.clip(comp, 0, 255).astype(np.uint8).tobytes())
+            n += 1
+    finally:
+        enc.stdin.close(); enc.wait(); dec.stdout.close(); dec.wait()
+    if enc.returncode != 0 or not n: raise RuntimeError("composite: could not write %s (%d frames)" % (out, n))
+    return [round(float(x), 4) for x in gains]
+
 def luma(im, mask=None):
     from PIL import ImageStat
     g = im.convert("L")
@@ -68,6 +126,10 @@ def main(argv):
     min_kept = float(opt("--min-preserved", "97"))
     min_regen = float(opt("--min-regen", "75"))
     only = opt("--panel", None)
+    defocus_opt = opt("--defocus", None)
+    wrap = max(0.0, min(1.0, float(opt("--wrap", str((job.get("hybrid") or {}).get("wrap", 0.5))))))
+    tint = max(0.0, min(1.0, float(opt("--tint", str((job.get("hybrid") or {}).get("tint", 0))))))
+    if defocus_opt is not None and not only: die("--defocus needs --panel: it is a per-shot lens match", 2)
     out_dir = Path(job["driveFolder"]) / "footage" / "composite"; out_dir.mkdir(parents=True, exist_ok=True)
     prev_dir = job_dir / "previews" / "hybrid"; prev_dir.mkdir(parents=True, exist_ok=True)
     todo = [p for p in brief["panels"] if p.get("plate") and (only is None or p["id"].upper() == only.upper())]
@@ -85,6 +147,8 @@ def main(argv):
         elif bg.get("status") not in ("provided", "delivered") or not bg.get("file") or not Path(bg["file"]).exists():
             waiting.append(p["id"] + " (background " + (bg.get("name") or p["background"]) + " not ready)"); continue
         keep_actor = not motion or motion.get("keepActor", True)
+        if defocus_opt is not None: p["defocus"] = max(0.0, float(defocus_opt))
+        defocus = 0.0 if motion else float(p.get("defocus") or 0)
         plate = Path(p["plate"]); info = probe(plate)
         W, H, dur, fps = info["width"], info["height"], info["duration"], info["fps"]
         if motion:
@@ -106,14 +170,27 @@ def main(argv):
             out = out_dir / (p["id"] + ".mp4")
             bg_in = (["-t", "%.3f" % dur, "-i", bg["file"]] if motion else ["-stream_loop", "-1", "-t", "%.3f" % dur, "-i", bg["file"]] if is_video else ["-loop", "1", "-t", "%.3f" % dur, "-i", bg["file"]])
             # The background covers the picture area only; letterbox or pillarbox bars stay black.
-            fc = ("[0:v]scale=%d:%d:force_original_aspect_ratio=increase,crop=%d:%d,setsar=1,fps=%.4f,eq=brightness=%.4f,pad=%d:%d:%d:%d:black[bg];"
-                  "[bg][1:v]overlay=0:0:shortest=1,format=yuv420p[v]") % (AW, AH, AW, AH, fps, shift, W, H, AX, AY)
+            blur = (",gblur=sigma=%.2f" % (defocus * AW / 1080.0)) if defocus > 0 else ""
+            fc = ("[0:v]scale=%d:%d:force_original_aspect_ratio=increase,crop=%d:%d,setsar=1%s,fps=%.4f,eq=brightness=%.4f,pad=%d:%d:%d:%d:black[bg];"
+                  "[bg][1:v]overlay=0:0:shortest=1,format=yuv420p[v]") % (AW, AH, AW, AH, blur, fps, shift, W, H, AX, AY)
             if not keep_actor:
                 fc = fc.split("[bg];")[0] + ",format=yuv420p[v]"
             cmd = ["ffmpeg", "-v", "error", "-y"] + bg_in + ["-i", str(cut), "-i", str(plate), "-filter_complex", fc, "-map", "[v]"]
             if info["audio"]: cmd += ["-map", "2:a", "-c:a", "aac", "-b:a", "192k"]
             cmd += ["-c:v", "libx264", "-preset", "medium", "-crf", "16", "-t", "%.3f" % dur, str(out)]
-            run(cmd)
+            gains = None
+            if keep_actor and not motion and not is_video and (wrap > 0 or tint > 0):
+                from PIL import ImageFilter
+                src = Image.open(bg["file"]).convert("RGB")
+                sc = max(AW / src.width, AH / src.height); src = src.resize((max(AW, round(src.width * sc)), max(AH, round(src.height * sc))), Image.LANCZOS)
+                l0, t0 = (src.width - AW) // 2, (src.height - AH) // 2; src = src.crop((l0, t0, l0 + AW, t0 + AH))
+                if defocus > 0: src = src.filter(ImageFilter.GaussianBlur(defocus * AW / 1080.0))
+                if shift: src = src.point(lambda v: max(0, min(255, int(round(v + shift * 255)))))
+                canvas = Image.new("RGB", (W, H)); canvas.paste(src, (AX, AY))
+                screen = ((p.get("cutout") or {}).get("keyColour") or {}).get("kind")
+                gains = comp_still(canvas, cut, plate, out, info, dur, wrap, tint, info["audio"], screen)
+            else:
+                run(cmd)
             # Performance check: the actor's pixels in the composite against the plate's, on five frames.
             from PIL import ImageStat
             def framed(im):
@@ -146,7 +223,8 @@ def main(argv):
             ba = Image.new("RGB", (a_img.width * 2 + 12, a_img.height), (7, 26, 58)); ba.paste(a_img, (0, 0)); ba.paste(b_img, (a_img.width + 12, 0))
             ba_p = prev_dir / (p["id"] + "-before-after.jpg"); ba.save(ba_p, quality=86)
             p["composite"] = {"file": str(out).replace("\\", "/"), "sha256": sha256(out), "backgroundKey": p["background"], "backgroundSha": bg.get("sha256"),
-                              "cutoutSha": (p.get("cutout") or {}).get("sha256"), "brightnessShift": round(shift, 4), "actorPreservedPct": pct, "worstFramePct": worst,
+                              "cutoutSha": (p.get("cutout") or {}).get("sha256"), "brightnessShift": round(shift, 4),
+                              "lightWrap": wrap if gains is not None else 0, "colourMatch": {"tint": tint, "gains": gains} if gains is not None else None, "actorPreservedPct": pct, "worstFramePct": worst,
                               "preview": str(ba_p).replace("\\", "/")}
             if motion:
                 p["composite"].update({"motionSha": motion.get("sha256"), "keepActor": keep_actor, "regenActorPct": regen_pct, "brightnessShift": 0.0})

@@ -16,7 +16,8 @@ For the mograph stage. Owned by the renderer. Alpha-channel overlays burned into
 10. **Long titles on vertical.** HeroTitle wraps letter by letter, so a line over about 18 characters breaks mid-word at 1080 wide. Put the second half in `subtitle`, or use `endtag`.
 11. **File naming:** `mograph/renders/{template}_{nn}.mov`, requests in `mograph/requests/{n}.json`, placements in `mograph.json`.
 12. **Never edit the composer during a job.** A change is its own plugin change, tested and versioned (`docs/motion-composer.md`).
-13. **Placement is the look's.** `start` and `durationSec` in `look.json` place each overlay on the first cut's timeline; `render.py` burns it in.
+13. **Placement is the look's.** `start` and `durationSec` in `look.json` place each overlay on the first cut's timeline; `offsetY` (-0.45 to 0.45 of the frame height) moves a centred template off the faces, into the sky or the lower third; `render.py` burns it in.
+14. **Colours are the look's, never the template's defaults.** HeroTitle's defaults (cyan accent, violet subtitle) suit no film: set `textColor`, `accentColor` and `subtitleColor` from the palette, and check the sample over the graded shot it sits on.
 
 ## Checklist
 

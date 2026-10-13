@@ -17,6 +17,9 @@
 // references.json; a 320 px thumb for the board goes to previews/refs/.
 // Exit 0 ok · 1 fault · 2 usage · 3 refused (not an image, too big, duplicate)
 const fs = require('fs');
+// Wikimedia (and other archives) refuse a generic or browser-like agent with HTTP 429: name the tool
+// and where to reach its makers, per https://meta.wikimedia.org/wiki/User-Agent_policy.
+const UA = 'DandelionProd/0.1 (https://github.com/3echo-dev/dandelion-prod; reference research)';
 const path = require('path');
 const { spawnSync } = require('child_process');
 const L = require('./lib-job.js');
@@ -90,7 +93,7 @@ function keep(buf, meta) {
   if (!url || !/^https?:\/\//i.test(url)) { console.error('fetch needs --url <http(s) image url>'); process.exit(2); }
   if (!page) { console.error('fetch needs --page <the page the picture was found on>, so its source and licence can be checked later'); process.exit(2); }
   let res;
-  try { res = await fetch(url, { redirect: 'follow', headers: { 'user-agent': 'Mozilla/5.0 (dandelion-prod reference fetch)' }, signal: AbortSignal.timeout(30000) }); }
+  try { res = await fetch(url, { redirect: 'follow', headers: { 'user-agent': UA }, signal: AbortSignal.timeout(30000) }); }
   catch (e) { console.error('download failed: ' + e.message); process.exit(1); }
   if (!res.ok) { console.error('download failed: HTTP ' + res.status); process.exit(1); }
   const len = Number(res.headers.get('content-length') || 0);

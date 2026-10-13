@@ -5,7 +5,7 @@
 // the video's own shape (render-preview writes {base}-poster.jpg next to the strip, found by itself),
 // and its width and height set the player's box before the video loads. The strip is never the poster.
 //
-//   node set-preview.js <client> <job-id> --item sequence|sync --video-url <url> [--asset-id <id>]
+//   node set-preview.js <client> <job-id> --item sequence|sync|render --video-url <url> [--asset-id <id>]
 //        [--strip previews/cut-v1-strip.png] [--poster previews/cut-v1-poster.jpg] [--caption "..."]
 //
 // Exit 0 queued · 2 usage · 3 strip missing
@@ -29,7 +29,11 @@ if (strip) {
   if (fs.statSync(p).size > 200 * 1024) { console.error(strip + ' is over 200 KB; the board card cannot carry it.'); process.exit(3); }
   data.thumb = 'data:image/png;base64,' + fs.readFileSync(p).toString('base64');
 }
-const posterRel = opt('--poster') || (strip ? strip.replace(/-strip\.png$/, '-poster.jpg') : null);
+let posterRel = opt('--poster') || (strip ? strip.replace(/-strip\.png$/, '-poster.jpg') : null);
+if (!posterRel && item === 'render') {
+  // The master's poster, written by render.py beside the preview.
+  try { const r = JSON.parse(fs.readFileSync(path.join(dir, 'render.json'), 'utf8')); if (r.poster) posterRel = path.relative(dir, path.isAbsolute(r.poster) ? r.poster : path.join(dir, r.poster)); } catch (e) {}
+}
 const posterAbs = posterRel ? path.join(dir, posterRel) : null;
 if (posterAbs && fs.existsSync(posterAbs)) {
   if (fs.statSync(posterAbs).size > 150 * 1024) { console.error(posterRel + ' is over 150 KB; the board card cannot carry it.'); process.exit(3); }

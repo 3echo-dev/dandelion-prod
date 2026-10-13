@@ -57,7 +57,7 @@ function checkLookFields(d) {
   for (const [i, m] of (d.mograph || []).entries()) {
     const w = 'mograph[' + i + ']';
     oneOf(m.template, ['title', 'endtag', 'captions'], w + '.template');
-    num(m.start, 0, 36000, w + '.start'); num(m.durationSec, 0.5, 120, w + '.durationSec');
+    num(m.start, 0, 36000, w + '.start'); num(m.durationSec, 0.5, 120, w + '.durationSec'); num(m.offsetY, -0.45, 0.45, w + '.offsetY');
     if (typeof m.start !== 'number' || typeof m.durationSec !== 'number') errs.push(w + ' needs start and durationSec in seconds');
     if (!m.props || typeof m.props !== 'object') errs.push(w + '.props must be the template\'s props object');
   }

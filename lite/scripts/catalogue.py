@@ -53,8 +53,14 @@ def scene_cuts(src, threshold):
 
 
 def grab(src, t, out, width=None):
+    # A seek onto a shot's very last frame can come back empty (ffmpeg rounds past the end);
+    # step back a little until a frame is written.
     vf = ["-vf", "scale=%d:-2" % width] if width else []
-    run(["ffmpeg", "-v", "error", "-y", "-ss", "%.3f" % max(0.0, t), "-i", str(src), "-frames:v", "1"] + vf + [str(out)])
+    for back in (0.0, 0.1, 0.25, 0.5):
+        Path(out).unlink(missing_ok=True)
+        run(["ffmpeg", "-v", "error", "-y", "-ss", "%.3f" % max(0.0, t - back), "-i", str(src), "-frames:v", "1"] + vf + [str(out)])
+        if Path(out).exists() and Path(out).stat().st_size: return
+    die("could not read a frame of %s near %.2f s" % (src, t), 1)
 
 
 def main(argv):

@@ -7,7 +7,8 @@
 //   node mograph.js <client> <job-id> add --file <alpha.mov> --start S [--note "..."]   a supplied overlay (client's own animation)
 //   node mograph.js <client> <job-id> status
 //
-// Requests come from look.json "mograph": [{template: title|endtag|captions, props, start, durationSec, note}].
+// Requests come from look.json "mograph": [{template: title|endtag|captions, props, start, durationSec, offsetY, note}].
+// offsetY (-0.45..0.45, share of the frame height) moves a centred template up or down in the master.
 // Overlays only: a full-frame template would cover the picture this pipeline exists to keep.
 // Renders at the cut's own size and frame rate. The placements live in mograph.json, which
 // render.py reads. No look.json mograph and nothing added: the stage is skipped.
@@ -43,7 +44,7 @@ if (cmd === 'plan') {
     if (r.start + r.durationSec > job.source.duration + 0.01) console.log('NOTE mograph ' + (i + 1) + ' runs past the end of the cut; it will be trimmed.');
     const n = i + 1; const reqFile = path.join(dir, n + '.json');
     L.writeJson(reqFile, { template: r.template, props: r.props, durationSec: r.durationSec, aspectRatio: job.aspectRatio, fps: job.source.fps, note: r.note || null });
-    rec.items.push({ n, source: 'look', template: r.template, request: L.fwd(reqFile), start: r.start, durationSec: r.durationSec, status: 'planned', file: null });
+    rec.items.push({ n, source: 'look', template: r.template, request: L.fwd(reqFile), start: r.start, durationSec: r.durationSec, offsetY: Number(r.offsetY) || 0, status: 'planned', file: null });
   });
   save();
   console.log(reqs.length ? reqs.length + ' overlay(s) planned: ' + reqs.map((r, i) => (i + 1) + ' ' + r.template + ' at ' + r.start + ' s for ' + r.durationSec + ' s').join('; ') : 'no motion graphics in the look; the stage can be skipped.');

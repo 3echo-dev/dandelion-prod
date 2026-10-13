@@ -653,6 +653,8 @@ details.model .work{margin-top:16px}
 .br img{max-height:180px;border-radius:8px;border:1px solid var(--line2);align-self:flex-start}
 .br .mono{color:var(--faint);word-break:break-all}
 .preview{margin-bottom:12px;border:1px solid var(--line2);border-radius:12px;overflow:hidden;background:var(--ink)}
+.gls{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:0 0 12px}.gls .x{color:var(--faint);font-size:var(--t1)}
+.gl{display:inline-flex;align-items:center;gap:6px;text-decoration:none;padding:5px 11px;border-radius:var(--r2);background:var(--paper);color:var(--ink);font-weight:600;border:1px solid var(--line)}.gl.sm{padding:3px 9px;font-size:var(--t1)}.gl em{font-style:normal;color:var(--tape);font-weight:500}
 .preview img,.preview video{display:block;width:100%;max-height:56vh;object-fit:contain;background:#000}
 .preview .cap{display:flex;justify-content:space-between;gap:10px;padding:7px 10px;font-size:var(--t1);color:var(--dim)}
 details.model.k-post>summary{background:radial-gradient(34% 190% at 60% 40%,#FF2D6F,rgb(255 45 111/0) 100%),radial-gradient(30% 200% at 86% 55%,#FF7A3D,rgb(255 122 61/0) 100%),radial-gradient(36% 170% at 34% 90%,#B5104E,rgb(181 16 78/0) 100%),linear-gradient(90deg,#2B0715,#4F0C26 26%,#7E1238 70%,#5A0E2A);box-shadow:inset 0 0 0 1px rgb(255 255 255/.14),inset 0 1px 0 rgb(255 255 255/.18),0 14px 34px -20px rgb(255 60 110/.75)}
@@ -2045,7 +2047,7 @@ function itemCard(it){
     <div class="dc-h"><span class="node ${STEP_IMG[it.id]?'pic':''}" aria-hidden="true">${STEP_IMG[it.id]?`<img src="${STEP_IMG[it.id]}" alt="">`:ic('s-'+it.id)}</span><div><b>${esc(it.name)} <span class="v num">v${it.version||0}</span></b><span class="pill ${sh}">${STATUS_LABEL[sh]||sh}</span></div></div>
     <p>${esc(sh==='needs_review'&&it.changeNote?'Change requested: '+it.changeNote:(it.summary||it.produces))}${cnt?` <span class="x num">· ${esc(cnt)}</span>`:''}</p>
     ${th.length?`<div class="dc-th" style="--panel-ar:${panelRatio()}">${th.map(p=>`<button data-lightbox="${esc(p.id)}" aria-label="Enlarge ${esc(p.id)}" style="background-image:url(${esc(p.thumb)});background-size:contain;background-repeat:no-repeat;background-position:center"></button>`).join('')}</div>`:''}
-    <div class="bub-act">${canApprove?`<button class="primary sm" data-approve="${it.id}" ${busy.has('ap'+it.id)?'disabled':''}>${ic('check')} Approve v${it.version||0}</button>`:''}${it.status!=='pending'?`<button class="sm" data-change="${it.id}">${ic('change')} Request change</button>`:''}<button class="sm" data-open-item="${it.id}" data-open-tab="${tab}">${ic('open')} ${openLabel}</button></div>
+    <div class="bub-act">${canApprove?`<button class="primary sm" data-approve="${it.id}" ${busy.has('ap'+it.id)?'disabled':''}>${ic('check')} Approve v${it.version||0}</button>`:''}${it.status!=='pending'?`<button class="sm" data-change="${it.id}">${ic('change')} Request change</button>`:''}<button class="sm" data-open-item="${it.id}" data-open-tab="${tab}">${ic('open')} ${openLabel}</button>${linksHtml(it,true)}</div>
   </div>`};
 }
 function composerHtml(seat, its, cur){
@@ -2123,6 +2125,14 @@ function filesHtml(it){
       <div class="versions">${rows}${more?`<div class="vr"><span class="empty">and ${more} more in the same folder</span></div>`:''}</div></details>`;
   }).join('');
 }
+// Google Docs and Sheets copies of a step's record (gdocs.js link). The board stays the record;
+// a copy made for an older version says so.
+function linksOf(it){ return (Array.isArray(it.links)?it.links:[]).filter(l=>l&&/^https:\/\/(docs|drive)\.google\.com\//.test(String(l.url||''))); }
+function linksHtml(it, small){
+  const ls=linksOf(it); if(!ls.length) return '';
+  const b=l=>{ const old=l.version!=null&&it.version!=null&&Number(l.version)!==Number(it.version); return `<a class="gl${small?' sm':''}" href="${esc(l.url)}" target="_blank" rel="noopener" title="${esc(l.label||'Google copy')} of v${esc(l.version)}${old?', an older version':''}">${ic('open')} ${esc(l.label||'Google copy')}${l.version!=null?` <span class="num">v${esc(l.version)}</span>`:''}${old?' <em>older</em>':''}</a>`; };
+  return small ? ls.map(b).join('') : `<div class="gls">${ls.map(b).join('')}<span class="x">A copy to read and share; sign off here on the board.</span></div>`;
+}
 function itemPanelHtml(seat){
   const its=seatItems(seat.id); if(!its.length) return '<p class="empty">This agent has no step on this pipeline.</p>';
   const it=its.find(i=>i.id===drawer)||its[0]; const isReg=!!REG_FIELDS[it.id]; const vs=versions[it.id]||[]; const rs=runsOf(it.id);
@@ -2169,6 +2179,7 @@ function itemPanelHtml(seat){
     </dl>
     <div style="margin-top:14px"><div class="subh">Versions</div><div class="versions">${vs.length?vs.map(v=>`<div class="vr ${v.n===it.approvedVersion?'sel':''}"><span class="num">v${v.n}</span><span>${esc(v.note||'')}</span><span>${fmt(v.at)}</span></div>`).join(''):'<span class="empty">The pipeline records a version each time it delivers or revises.</span>'}</div></div>`;
   }
+  body = linksHtml(it) + body;
   return `${its.length>1?`<div class="segm" role="group" aria-label="${esc(seat.label)}'s steps">${its.map(i=>`<button class="sm ${i.id===it.id?'on':''}" data-open-item="${i.id}" aria-pressed="${i.id===it.id}">${esc(i.name)}</button>`).join('')}</div>`:''}
     <div class="it-h"><h3>${esc(it.name)}${it.xx?' <span class="xx" title="A person enters or approves this">XX</span>':''} <span class="v num">v${it.version||0}</span></h3><span class="pill ${why?'pending':sh}">${why?'Waiting':STATUS_LABEL[sh]}</span><span style="flex:1"></span>
       <div class="actions">

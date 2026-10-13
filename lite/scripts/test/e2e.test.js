@@ -189,7 +189,7 @@ try {
 
   step('cut-out and composite keep the person', () => {
     const cut = py('cutout.py', [C, JOB]);
-    assert.match(cut, /S01 cut out by chromakey/); assert.match(cut, /S03 cut out by chromakey/);
+    assert.match(cut, /S01 cut out by diffkey/); assert.match(cut, /S03 cut out by diffkey/);
     const comp = py('composite.py', [C, JOB]);
     for (const p of read('hybrid-brief.json').panels.filter(p => p.plate)) assert.ok(p.composite.actorPreservedPct >= 97, p.id + ' kept ' + p.composite.actorPreservedPct + '%\n' + comp);
   });
@@ -231,6 +231,21 @@ try {
     node('board-sync.js', ['land', C, JOB, landed([['gates', 'B', { status: 'passed', decidedBy: 'creative-director', decidedAt: '2026-10-09T03:00:00Z', round: 1, items: { render: { status: 'approved', version: 1, file: 'render.json', sha256: sha } } }]])]);
     assert.match(node('board-sync.js', ['pull', C, JOB, '--gate', 'B']), /gate B approved/);
     assert.match(node('state.js', [C, JOB, 'show']), /Gate B Master sign-off: approved by creative-director/);
+  });
+
+  step('the master poster and the Google copies', () => {
+    const r = read('render.json'); assert.ok(r.poster && fs.existsSync(r.poster) && fs.statSync(r.poster).size <= 140 * 1024);
+    node('set-preview.js', [C, JOB, '--item', 'render', '--video-url', '/_blob/0123456789abcdef']);
+    node('board-sync.js', ['push', C, JOB]);
+    const pv = db('previews', 'render'); assert.ok(pv.poster.startsWith('data:image/jpeg;base64,') && pv.w > 0 && pv.h > 0);
+    const out = node('gdocs.js', [C, JOB, 'export']);
+    for (const item of ['research', 'interrogate', 'review']) assert.match(out, new RegExp('^' + item + '\\t', 'm'));
+    const csvFile = out.split('\n').find(l => l.startsWith('interrogate\t')).split('\t')[4];
+    assert.match(fs.readFileSync(csvFile, 'utf8'), /^"Shot","In","Out"/);
+    node('gdocs.js', [C, JOB, 'link', '--item', 'review', '--url', 'https://docs.google.com/document/d/abc123/edit']);
+    node('board-sync.js', ['push', C, JOB]);
+    const links = db('items', 'review').links; assert.strictEqual(links[0].label, 'Google Doc'); assert.strictEqual(links[0].version, 1);
+    assert.throws(() => node('gdocs.js', [C, JOB, 'link', '--item', 'review', '--url', 'https://example.com/x']));
   });
 
   step('the real board: pins for what a person writes, kept versions for what the run writes', () => {

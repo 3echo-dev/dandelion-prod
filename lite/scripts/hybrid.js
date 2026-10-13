@@ -65,7 +65,11 @@ if (cmd === 'brief') {
       const anchor = per === 'panel' ? (anchors[locKey] = anchors[locKey] || key) : null;
       const old = oldBg[key] || {};
       const oldCut = (oldPanels.get(s.id) || {}).cutout;
-      const frame = oldCut && oldCut.cleanFrame && fs.existsSync(oldCut.cleanFrame) ? oldCut.cleanFrame : s.mid;
+      // A plate shot on a green or blue screen holds no place, horizon or light to match: sending it
+      // as [Image 1] only invites a green cast or a grey shape. Those backgrounds are framed by the
+      // look's words and the place references alone.
+      const screen = r.screen === 'green' || r.screen === 'blue';
+      const frame = screen ? null : (oldCut && oldCut.cleanFrame && fs.existsSync(oldCut.cleanFrame) ? oldCut.cleanFrame : s.mid);
       const lookRefs = refs.filter(x => x.tag === locKey && !x.background).slice(0, 8).map(x => x.file);
       if (owned) backgrounds[key] = { name: loc.name, location: locKey, source: 'library', file: owned.file, sha256: owned.sha256, reference: owned.id, status: 'provided', panels: [] };
       else backgrounds[key] = {
@@ -75,8 +79,9 @@ if (cmd === 'brief') {
           loc.prompt || ('An empty ' + loc.name + ': ' + loc.description + '.'),
           'No people in it: a film background plate for a live-action shot.',
           r.camera && r.camera !== 'static' ? null : 'Locked-off camera.',
-          'Match the camera angle, height, horizon and light direction of [Image 1]. Anything standing in [Image 1] (a person, a grey shape) is not part of the background: fill that space with more of the place, never a person or an object.',
-          lookRefs.length ? 'The other reference images show the period, materials and details to follow; do not copy their framing.' : null,
+          screen ? 'The people are added later over the centre and lower part of the frame: keep that area an open, natural continuation of the place, with no foreground object standing in it.'
+            : 'Match the camera angle, height, horizon and light direction of [Image 1]. Anything standing in [Image 1] (a person, a grey shape) is not part of the background: fill that space with more of the place, never a person or an object.',
+          lookRefs.length ? (screen ? 'The reference images show the place, materials and details to follow; do not copy their framing.' : 'The other reference images show the period, materials and details to follow; do not copy their framing.') : null,
           anchor && anchor !== key ? 'The same place, time of day and light as the continuity reference image, seen from this shot\'s camera angle.' : null,
           'Light: ' + r.lighting + '.',
           'Photographic, cinematic, ' + (job.aspectRatio || '16:9') + ' frame; no text, no people, no logos.',

@@ -16,7 +16,7 @@ disallowedTools: Agent
 
 ## Cut-out (hybrid stage, first pass)
 
-`python S/cutout.py {client} {job-id}` (or `--panel S03`). Look at each `previews/hybrid/{id}-mask.png`. Coverage under 2% or over 85%, a missing hand or product, or a hole in the person: retry that shot (`--similarity 0.08..0.18` and `--blend` for a screen; `--method rembg` without one; `--model birefnet-general-lite` for fine hair, slow). Report each shot's method and coverage.
+`python S/cutout.py {client} {job-id}` (or `--panel S03`). Look at each `previews/hybrid/{id}-mask.png`. Coverage under 2% or over 85%, a missing hand or product, or a hole in the person: retry that shot (`--lo 0.12..0.3` to keep more edge, `--hi 0.5..0.75` for a harder matte, on a screen; a grey (part see-through) body in the mask means `--hi` lower; `--method rembg` without one; `--model birefnet-general-lite` for fine hair, slow). Report each shot's method and coverage.
 
 ## Composite (hybrid stage, after backgrounds land)
 
