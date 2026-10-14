@@ -927,6 +927,7 @@ function arm(key){ armed={key, until:Date.now()+8000}; render(); setTimeout(()=>
 let changeFor = null; // item id whose change form is open
 let answerFor = null; // inbox id whose typed-answer form is open
 let panels = []; // storyboard panels the pipeline pushed, with thumbnails
+let media = []; // generated files (backgrounds, motion clips, overlays), one row per take, for the Versions list
 let bgm = [], mograph = [], previews = {}; // post-production: music candidates, alpha overlays, and a preview per step
 let refs = [], refsel = {}; // the scout's reference rows, and which ones the person ticked
 // Every agent is a small character drawn here, with no outside library: a body in a colour and a
@@ -994,7 +995,7 @@ async function boot(){
 }
 function bindProject(){
   unsubs.forEach(u=>{try{u()}catch(e){}}); unsubs=[];
-  items={}; gates={}; inbox=[]; messages=[]; regs={talents:[],props:[],locations:[]}; versions={}; runs={}; project=null; panels=[]; bgm=[]; mograph=[]; previews={}; lightbox=null; redoFor=null; sheets={}; exportsDl={}; refs=[]; refsel={};
+  items={}; gates={}; inbox=[]; messages=[]; regs={talents:[],props:[],locations:[]}; versions={}; runs={}; media=[]; project=null; panels=[]; bgm=[]; mograph=[]; previews={}; lightbox=null; redoFor=null; sheets={}; exportsDl={}; refs=[]; refsel={};
   const r=route(); if(r.page!=='project'||!db) return;
   const base='projects/'+r.id;
   // A slate card the run adopted points at the job; carry the person to the job's own page.
@@ -1007,7 +1008,8 @@ function bindProject(){
   unsubs.push(db.collection(base+'/inbox').orderBy('createdAt','desc').limit(40).onSnapshot(q=>{ inbox=q.docs.map(d=>({id:d.id,...d.data()})); queue(); }));
   unsubs.push(db.collection(base+'/messages').orderBy('at','desc').limit(40).onSnapshot(q=>{ messages=q.docs.map(d=>({id:d.id,...d.data()})); queue(); }));
   for(const k of Object.keys(REG_FIELDS)) unsubs.push(db.collection(base+'/'+k).onSnapshot(q=>{ regs[k]=q.docs.map(d=>({id:d.id,...d.data()})); queue(); }));
-  unsubs.push(db.collection(base+'/versions').orderBy('at','desc').limit(100).onSnapshot(q=>{ versions={}; q.docs.forEach(d=>{const v=d.data(); (versions[v.item]=versions[v.item]||[]).push({id:d.id,...v});}); queue(); }));
+  unsubs.push(db.collection(base+'/media').orderBy('at','desc').limit(300).onSnapshot(q=>{ media=q.docs.map(d=>({id:d.id,...d.data()})); queue(); }));
+  unsubs.push(db.collection(base+'/versions').orderBy('at','desc').limit(300).onSnapshot(q=>{ versions={}; q.docs.forEach(d=>{const v=d.data(); (versions[v.item]=versions[v.item]||[]).push({id:d.id,...v});}); queue(); }));
   unsubs.push(db.collection(base+'/sheets').onSnapshot(q=>{ sheets={}; q.docs.forEach(d=>sheets[d.id]=d.data()); queue(); }));
   unsubs.push(db.collection(base+'/exports').onSnapshot(q=>{ exportsDl={}; q.docs.forEach(d=>exportsDl[d.id]={id:d.id,...d.data()}); queue(); }));
   unsubs.push(db.collection(base+'/panels').onSnapshot(q=>{ panels=q.docs.map(d=>({id:d.id,...d.data()})); queue(); }));
@@ -1616,7 +1618,7 @@ function tok(n){ n=Number(n)||0; return n>=1e6?(n/1e6).toFixed(n>=1e7?0:1)+'M':n
 function costLine(c){
   if(!c) return '';
   const parts=[];
-  if(c.runs) parts.push(tok(c.tokens)+' tokens');
+  if(c.runs||c.total) parts.push(tok(c.total!=null?c.total:c.tokens)+' tokens');
   if(c.creditsSpent!=null) parts.push(c.creditsSpent+' credit'+(c.creditsSpent===1?'':'s'));
   return parts.join(' · ');
 }
@@ -1627,15 +1629,55 @@ function costRows(){
     let t=0,u=0,untr=0; const models=[]; rs.forEach(r=>{ if(r.tokens!=null) t+=Number(r.tokens)||0; else untr++; if(r.turns!=null) u+=Number(r.turns)||0; if(r.model&&!models.includes(r.model)) models.push(r.model); });
     return {id:i.id,name:i.name,t,u,n:rs.length,untr,models}; }).filter(Boolean);
 }
-function costBox(){
-  const rows=costRows();
-  const total=rows.reduce((a,r)=>a+r.t,0), turns=rows.reduce((a,r)=>a+r.u,0), n=rows.reduce((a,r)=>a+r.n,0), untr=rows.reduce((a,r)=>a+r.untr,0);
+// The pushed tally (tally-cost.js) counts every run on disk, retries and the orchestrator's own
+// session included; the runs this page reads are capped, so the tally wins once it is there.
+function costTally(){
   const c=project&&project.cost||{};
-  const credits=c.creditsSpent!=null?`<div class="seat-row"><span>3echo credits</span><b class="num">${c.creditsSpent} of ${c.creditsCeiling??'?'}</b></div>`:'';
-  return `<div class="box"><h3>Cost <span>the agents' runs; the orchestrator is not counted</span></h3>
-    ${n?`<div style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap"><b style="font-size:var(--t5)" class="num">${total.toLocaleString('en-US')}</b><span class="meta">tokens · ${n} run${n===1?'':'s'} · ${turns} turns${untr?` · ${untr} without a count`:''}</span></div>`:'<p class="empty">No runs recorded yet.</p>'}
+  if(!c.byItem) return null;
+  const rows=scopeItems().map(i=>{ const r=c.byItem[i.id]; return r?{id:i.id,name:i.name,t:Number(r.tokens)||0,u:Number(r.turns)||0,n:Number(r.runs)||0,untr:0,models:r.models||[]}:null; }).filter(Boolean);
+  const o=c.orchestrator||null;
+  return {rows, agents:Number(c.tokens)||0, orch:o&&Number(o.tokens)||0, orchTurns:o&&Number(o.turns)||0, sessions:o&&Number(o.sessions)||0, turns:Number(c.turns)||0, n:Number(c.runs)||0, untr:Number(c.untracked)||0};
+}
+function costTotal(){ const t=costTally(); return t ? t.agents+t.orch : costRows().reduce((a,r)=>a+r.t,0); }
+function costBox(){
+  const T=costTally();
+  const rows=T?T.rows:costRows();
+  const agents=T?T.agents:rows.reduce((a,r)=>a+r.t,0), turns=T?T.turns:rows.reduce((a,r)=>a+r.u,0), n=T?T.n:rows.reduce((a,r)=>a+r.n,0), untr=T?T.untr:rows.reduce((a,r)=>a+r.untr,0);
+  const orch=T?T.orch:0, total=agents+orch;
+  const c=project&&project.cost||{}; const cr=c.credits||null;
+  const credits=c.creditsSpent!=null?`<div class="seat-row"><span>3echo credits${cr&&cr.landings!=null?` · ${cr.landings} landed`:''}</span><b class="num">${c.creditsSpent} spent of ${c.creditsCeiling??'?'} approved</b></div>${cr?['backgrounds','motion'].filter(k=>(cr.approved||{})[k]||(cr.spent||{})[k]).map(k=>`<div class="seat-row"><span style="padding-left:12px">${k==='motion'?'Moving backgrounds':'Backgrounds'}</span><span class="num">${(cr.spent||{})[k]||0} of ${(cr.approved||{})[k]||0}</span></div>`).join(''):''}`:'';
+  return `<div class="box"><h3>Cost <span>${T?'every agent run, retries and the orchestrator included':'the agents\' runs; the orchestrator is counted once the pipeline pushes its tally'}</span></h3>
+    ${n||orch?`<div style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap"><b style="font-size:var(--t5)" class="num">${total.toLocaleString('en-US')}</b><span class="meta">tokens · ${n} run${n===1?'':'s'} · ${turns} turns${untr?` · ${untr} without a count`:''}</span></div>`:'<p class="empty">No runs recorded yet.</p>'}
     ${credits}
-    ${rows.length?`<div class="seats">${rows.map(r=>`<button class="seat-row" data-open-item="${r.id}" data-open-tab="output" title="${esc(r.models.join(', '))} · ${r.u} turns"><span><b>${esc(r.name)}</b>${r.n>1?` · ${r.n} runs`:''}</span><span class="num">${tok(r.t)}${total?` · ${Math.round(r.t*100/total)}%`:''}</span></button>`).join('')}</div>`:''}
+    ${rows.length||orch?`<div class="seats">${orch?`<div class="seat-row" title="The main session, read from its transcript at the end of each turn · ${T.orchTurns} turns"><span><b>Orchestrator</b>${T.sessions>1?` · ${T.sessions} sessions`:''}</span><span class="num">${tok(orch)}${total?` · ${Math.round(orch*100/total)}%`:''}</span></div>`:''}${rows.map(r=>`<button class="seat-row" data-open-item="${r.id}" data-open-tab="output" title="${esc(r.models.join(', '))} · ${r.u} turns"><span><b>${esc(r.name)}</b>${r.n>1?` · ${r.n} runs`:''}</span><span class="num">${tok(r.t)}${total?` · ${Math.round(r.t*100/total)}%`:''}</span></button>`).join('')}</div>`:''}
+  </div>`;
+}
+// Every version of the job in one list: each step's deliveries and every generated take
+// (background, moving background, overlay). Paths only, never a player: a job with dozens of
+// clips would not load, and the files live on the pipeline's computer anyway.
+function versionRows(){
+  const out=[];
+  for(const [item,vs] of Object.entries(versions)) for(const v of vs){
+    const it=itemOf(item)||{name:item}; const fs=filesOf(it, v); const main=(v.file||v.path)||(fs[0]&&fs[0].path)||'';
+    out.push({kind:'step', item, step:it.name||item, label:'v'+v.n+(v.note?' · '+v.note:''), n:Number(v.n), at:v.at, seat:v.seat, path:main?fullPath(it,{path:main},v):'', count:fs.length+((v.filesMore)||0), credits:null, current:Number(it.approvedVersion)===Number(v.n)?'approved':Number(it.version)===Number(v.n)?'latest':''});
+  }
+  const lastOf={}; for(const m of media){ const k=m.kind+'|'+m.key; if(!lastOf[k]||String(m.at)>String(lastOf[k].at)) lastOf[k]=m; }
+  for(const m of media){
+    const it=itemOf(m.item)||{name:m.item||''};
+    out.push({kind:m.kind, item:m.item, step:it.name||m.item, label:(m.name||m.key)+(m.v?' · take '+m.v:''), n:m.v, at:m.at, seat:null, path:m.file||'', count:1, credits:m.credits, current:lastOf[m.kind+'|'+m.key]===m?'in use':''});
+  }
+  return out.sort((a,b)=>String(b.at||'').localeCompare(String(a.at||'')));
+}
+let versionsFilter='all';
+function versionsBox(){
+  const all=versionRows();
+  if(!all.length) return `<div class="box"><h3>Versions</h3><p class="empty">Nothing has been delivered on this project yet.</p></div>`;
+  const kinds=[['all','All'],['step','Steps'],['background','Backgrounds'],['motion','Moving backgrounds'],['mograph','Overlays']].filter(([k])=>k==='all'||all.some(r=>r.kind===k));
+  const rows=all.filter(r=>versionsFilter==='all'||r.kind===versionsFilter);
+  const KL={step:'Step',background:'Background',motion:'Moving bg',mograph:'Overlay'};
+  return `<div class="box"><h3>Versions <span>${all.length} on record · newest first · paths on the pipeline's computer</span></h3>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">${kinds.map(([k,l])=>`<button class="${versionsFilter===k?'':'ghost '}sm" data-vfilter="${k}">${esc(l)}</button>`).join('')}<span style="flex:1"></span><button class="ghost sm" data-copy-path="${esc(rows.map(r=>r.path).filter(Boolean).join('\n'))}">${ic('copy')} Copy all paths</button></div>
+    <div class="versions">${rows.map(r=>`<div class="vr" style="grid-template-columns:minmax(0,1fr) auto;align-items:center"><span style="min-width:0"><b>${esc(r.step)}</b> · ${esc(r.label)} <span class="num" style="color:var(--faint)">${esc(KL[r.kind]||r.kind)}${r.at?' · '+fmt(r.at):''}${r.seat?' · '+esc(seatLabel(r.seat)):''}${r.credits?' · '+r.credits+' credit'+(r.credits===1?'':'s'):''}${r.count>1?' · '+r.count+' files':''}</span>${r.current?` <span class="pill ${r.current==='approved'?'approved':'plain'}">${esc(r.current)}</span>`:''}<br><span style="word-break:break-all;color:var(--faint)">${esc(r.path||'(no file recorded)')}</span></span>${r.path?`<button class="ghost icon" data-copy-path="${esc(r.path)}" title="Copy the full path" aria-label="Copy the path">${ic('copy')}</button>`:'<span></span>'}</div>`).join('')}</div>
   </div>`;
 }
 function statusWord(s){ return {picture:'Picture',audio:'Audio',finish:'Finish',intake:'Intake',stage1:'Stage 1',gate_a:'At Gate A',stage2:'Stage 2',gate_b:'At Gate B',stage3:'Stage 3',gate_c:'At Gate C',released:'Released',killed:'Killed'}[s]||s||''; }
@@ -1930,13 +1972,13 @@ function flowHtml(model){
 }
 function projectHead(){
   const its=scopeItems().map(i=>itemOf(i.id)); const ok=its.filter(i=>['approved','na'].includes(i.status)).length;
-  const cost=costRows().reduce((a,r)=>a+r.t,0); const c=project.cost||{};
+  const cost=costTotal(); const c=project.cost||{};
   const costTxt=[cost?tok(cost)+' tokens':'', c.creditsSpent!=null?c.creditsSpent+' credit'+(c.creditsSpent===1?'':'s'):''].filter(Boolean).join(' · ');
   let map='', last=null;
   for(const it of its){ if(last!=null&&it.stage!==last&&it.stage>1) map+='<b></b>'; last=it.stage; map+=`<i class="s-${blockedBy(it)?'blocked':shownStatus(it)}" title="${esc(it.name)}: ${esc(blockedBy(it)?'waiting':STATUS_LABEL[shownStatus(it)])}"></i>`; }
   return `<div class="phead" data-signal-anchor>
     <div class="ph-l">${blob(project.id, BLOB_MOOD[project.status]||'idle', 44)}<div><h2>${esc(project.title)}</h2><p class="meta">${[...projSub(project),statusWord(project.status)].filter(Boolean).map(esc).join(' · ')}${project.example?' · example data':''}</p></div></div>
-    <div class="ph-r">${alaCarte()?`<span class="scope" title="Only these steps were asked for. The full pipeline has ${ITEMS.length}.">A la carte · ${its.length} step${its.length===1?'':'s'}</span>`:''}${costTxt?`<button class="ghost num" data-agent="orchestrator" title="Cost so far, by step">${esc(costTxt)}</button>`:''}<button class="ghost" data-copy title="Copy a plain-text summary of this board to paste into a Claude chat">${ic('copy')} Copy board</button></div>
+    <div class="ph-r">${alaCarte()?`<span class="scope" title="Only these steps were asked for. The full pipeline has ${ITEMS.length}.">A la carte · ${its.length} step${its.length===1?'':'s'}</span>`:''}${costTxt?`<button class="ghost num" data-agent="orchestrator" title="Cost so far, by step">${esc(costTxt)}</button>`:''}${Object.keys(versions).length||media.length?`<button class="ghost" data-versions title="Every version and generated take on this project, with where each file is">${ic('open')} Versions</button>`:''}<button class="ghost" data-copy title="Copy a plain-text summary of this board to paste into a Claude chat">${ic('copy')} Copy board</button></div>
     <div class="mini"><div class="minimap" role="img" aria-label="${ok} of ${its.length} steps approved">${map}</div><span class="meta num">${ok} of ${its.length} steps approved</span></div>
   </div>`;
 }
@@ -2102,6 +2144,7 @@ function orchestratorHtml(){
   const answered=inbox.filter(r=>r.type==='question'&&r.status==='answered').slice(0,6);
   return `<div class="box"><h3>Council log <span>newest first</span></h3>${messages.length?messages.slice(0,8).map(m=>`<div class="msg"><div class="by"><span>${esc(humanName(m.by))}${m.item?` · ${esc(itemOf(m.item).name)}`:''}</span><span>${fmt(m.at)}</span></div>${esc(m.text)}</div>`).join(''):'<p class="empty">Decisions and notes on this project appear here as they are made.</p>'}</div>
     ${costBox()}
+    <div data-versions-box>${versionsBox()}</div>
     ${answered.length?`<div class="box"><h3>Answered</h3><div class="hist" style="border:0;padding:0">${answered.map(r=>`<div><b>${esc(r.text)}</b> → ${esc(r.answer||'')} · ${esc(humanName(r.answeredBy))} ${fmt(r.answeredAt)}</div>`).join('')}</div></div>`:''}
     <div class="box"><h3>Project</h3><dl class="kv">
       <dt>Client</dt><dd>${esc(project.client||'')}</dd>
@@ -2221,7 +2264,7 @@ function footer(){ if(route().page==='home') return ''; return `<footer class="f
 function wire(){
   const app=$('#app');
   app.onclick = async e=>{
-    const t=e.target.closest('[data-open],[data-open-item],[data-open-run],[data-tab],[data-approve],[data-change],[data-na],[data-lock],[data-compositor],[data-answer],[data-agent],[data-agent-close],[data-nav],[data-choose-bgm],[data-approve-req],[data-decline-req],[data-approve-alpha],[data-attach],[data-unattach],[data-sheet-open],[data-sheet-close],[data-wide],[data-goto-pending],[data-demo],[data-gate],[data-copy],[data-signal],[data-change-cancel],[data-gen],[data-approve-panel],[data-ref-toggle],[data-wider],[data-faces],[data-redo],[data-redo-cancel],[data-lightbox],[data-lightbox-close],[data-copy-sheet],[data-export],[data-copy-path],[data-home],[data-dl],[data-dl-csv]');
+    const t=e.target.closest('[data-open],[data-open-item],[data-open-run],[data-tab],[data-approve],[data-change],[data-na],[data-lock],[data-compositor],[data-answer],[data-agent],[data-agent-close],[data-nav],[data-choose-bgm],[data-approve-req],[data-decline-req],[data-approve-alpha],[data-attach],[data-unattach],[data-sheet-open],[data-sheet-close],[data-wide],[data-goto-pending],[data-demo],[data-gate],[data-copy],[data-signal],[data-change-cancel],[data-gen],[data-approve-panel],[data-ref-toggle],[data-wider],[data-faces],[data-redo],[data-redo-cancel],[data-lightbox],[data-lightbox-close],[data-copy-sheet],[data-export],[data-copy-path],[data-home],[data-dl],[data-dl-csv],[data-versions],[data-vfilter]');
     if(!t) return;
     if(t.dataset.demo!=null){ startDemo(); return; }
     if(t.dataset.nav!=null){ e.preventDefault(); closePanel(); refocus=null; gateOpen=null; location.hash=t.dataset.nav; return; }
@@ -2236,6 +2279,8 @@ function wire(){
     if(t.dataset.unattach!=null){ const f=attach.splice(Number(t.dataset.unattach),1)[0]; render(); if(f&&f.asset){ try{ const st=await claude.use('assets'); if(st) await st.delete(f.asset); }catch(e){} } return; }
     if(t.dataset.sheetClose!=null){ sheetOpen=false; render(); return; }
     if(t.dataset.sheetOpen!=null){ sheetOpen=true; sheetEnter=true; render(); return; }
+    if(t.dataset.versions!=null){ if(agentOpen!=='orchestrator') openAgent('orchestrator'); sheetOpen=true; sheetEnter=true; render(); setTimeout(()=>{ const b=document.querySelector('[data-versions-box]'); if(b) b.scrollIntoView({block:'start'}); },0); return; }
+    if(t.dataset.vfilter!=null){ versionsFilter=t.dataset.vfilter; render(); return; }
     if(t.dataset.agentClose!=null){ closePanel(); render(); return; }
     if(t.dataset.wide!=null){ panelWide=!panelWide; try{ localStorage.setItem('c122.wide', panelWide?'1':'0'); }catch(e){} render(); return; }
     if(t.dataset.agent){ openAgent(t.dataset.agent); render(); return; }

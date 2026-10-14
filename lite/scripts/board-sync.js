@@ -66,7 +66,7 @@ function fullCollection(collection) {
 
 // ---- file-mode write (also used by land to materialise what the tool read) ----
 // Collections only the pipeline writes; their versions are kept on disk (see push).
-const OWN = /\/(panels|previews|references|runs|versions)$/;
+const OWN = /\/(panels|previews|references|runs|versions|media)$/;
 
 function fileWrite(record) {
   if (record.op === 'delete') { fs.rmSync(path.join(lib.dbRoot(CWD, client, jobId), record.collection, record.docId + '.json'), { force: true }); return 0; }

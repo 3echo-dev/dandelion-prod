@@ -187,6 +187,22 @@ try {
     assert.match(node('hybrid.js', [C, JOB, 'land', 'shophouse street', '--file', path.join(src, 'street.png'), '--credits', '1']), /Every location has a background/);
   });
 
+  step('every landing is its own take, counted in the ledger and on the board', () => {
+    const bg = read('hybrid-brief.json').backgrounds['shophouse street'];
+    assert.match(bg.file, /shophouse-street-v1\.png$/);
+    assert.strictEqual(bg.history.length, 1);
+    assert.match(bg.idempotencyKey, /\/v2$/, 'a redo must submit under a fresh key');
+    // The cap counts the ledger: one credit approved, one spent, so a redo is refused and nothing is overwritten.
+    assert.match(node('hybrid.js', [C, JOB, 'land', 'shophouse street', '--file', path.join(src, 'street.png'), '--credits', '1'], 3), /over the 1 approved/);
+    const ledger = fs.readFileSync(path.join(JD, 'credits.jsonl'), 'utf8').trim().split('\n').map(l => JSON.parse(l));
+    assert.deepStrictEqual(ledger.map(l => [l.kind, l.v, l.credits]), [['background', 1, 1]]);
+    node('board-sync.js', ['push', C, JOB]);
+    assert.strictEqual(db('media', 'bg-shophouse-street-v1').file, bg.file);
+    const cost = db('projects', JOB).cost;
+    assert.strictEqual(cost.creditsSpent, 1); assert.strictEqual(cost.creditsCeiling, 1);
+    assert.deepStrictEqual(cost.credits.spent, { backgrounds: 1, motion: 0 });
+  });
+
   step('cut-out and composite keep the person', () => {
     const cut = py('cutout.py', [C, JOB]);
     assert.match(cut, /S01 cut out by diffkey/); assert.match(cut, /S03 cut out by diffkey/);

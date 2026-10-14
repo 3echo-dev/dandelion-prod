@@ -6,39 +6,54 @@
 //   node tally-cost.js <client> <job-id> --json   print it, queue nothing
 //
 // record-run.js calls queue() after every run, so the board stays current without a separate
-// step; run this by hand to back-fill a job recorded before the tally existed. The numbers are
-// the directors' runs only: the orchestrator's own session is not a run and is not counted, and
-// a run recorded without --tokens counts as a run with no tokens (the board says how many).
+// step; run this by hand to back-fill a job recorded before the tally existed. `tokens` is the
+// directors' runs; `orchestrator` is the main session's own use, which the Stop hook records from
+// the transcript (runs/orchestrator-*.json); `total` is both. A run recorded without --tokens
+// counts as a run with no tokens (the board says how many).
 //
 // Exit 0 done · 2 usage
 const fs = require('fs');
 const path = require('path');
 
 function tally(dir) {
-  const byItem = {};
+  const R = require('./lib-runs.js');
+  const byItem = {}, bySeat = {};
   let tokens = 0, turns = 0, runs = 0, untracked = 0;
-  let files = [];
-  try { files = fs.readdirSync(path.join(dir, 'runs')).filter(f => /-v\d+\.json$/.test(f)); } catch { files = []; }
-  for (const f of files) {
-    let r; try { r = JSON.parse(fs.readFileSync(path.join(dir, 'runs', f), 'utf8')); } catch { continue; }
-    if (!r || !r.item) continue;
+  const orchestrator = { tokens: 0, turns: 0, sessions: 0, models: [] };
+  for (const r of R.readRuns(dir)) {
     const t = Number(r.tokens), u = Number(r.turns);
+    if (r.item === 'orchestrator') {
+      orchestrator.sessions++;
+      if (Number.isFinite(t)) orchestrator.tokens += t;
+      if (Number.isFinite(u)) orchestrator.turns += u;
+      for (const m of String(r.model || '').split(', ').filter(Boolean)) if (!orchestrator.models.includes(m)) orchestrator.models.push(m);
+      continue;
+    }
     const row = byItem[r.item] = byItem[r.item] || { tokens: 0, turns: 0, runs: 0, models: [] };
-    row.runs++; runs++;
-    if (r.tokens != null && Number.isFinite(t)) { row.tokens += t; tokens += t; } else untracked++;
-    if (r.turns != null && Number.isFinite(u)) { row.turns += u; turns += u; }
+    const seat = bySeat[r.seat || 'unknown'] = bySeat[r.seat || 'unknown'] || { tokens: 0, turns: 0, runs: 0 };
+    row.runs++; seat.runs++; runs++;
+    if (r.tokens != null && Number.isFinite(t)) { row.tokens += t; seat.tokens += t; tokens += t; } else untracked++;
+    if (r.turns != null && Number.isFinite(u)) { row.turns += u; seat.turns += u; turns += u; }
     if (r.model && !row.models.includes(r.model)) row.models.push(r.model);
   }
-  // Credits: what landed backgrounds and motion clips cost, against what the spend questions approved.
-  let creditsSpent = null, creditsCeiling = null;
-  try {
-    const b = JSON.parse(fs.readFileSync(path.join(dir, 'hybrid-brief.json'), 'utf8'));
-    const ap = b.approvals || {};
-    creditsSpent = Object.values(b.backgrounds || {}).reduce((s, x) => s + (Number(x.credits) || 0), 0)
-      + (b.panels || []).reduce((s, p) => s + (Number((p.motion || {}).credits) || 0), 0);
-    creditsCeiling = (Number((ap.backgrounds || {}).credits) || 0) + (Number((ap.motion || {}).credits) || 0);
-  } catch { /* no hybrid brief yet */ }
-  return { tokens, turns, runs, untracked, byItem, creditsSpent, creditsCeiling };
+  // Credits: what landed backgrounds and motion clips cost, against what the spend questions
+  // approved. The ledger (credits.jsonl) counts every landing, redos included; a job from before
+  // the ledger falls back to the figures on hybrid-brief.json.
+  let creditsSpent = null, creditsCeiling = null, credits = null;
+  let b = null; try { b = JSON.parse(fs.readFileSync(path.join(dir, 'hybrid-brief.json'), 'utf8')); } catch { /* no hybrid brief yet */ }
+  const ledger = R.readCredits(dir);
+  if (b || ledger) {
+    const ap = (b && b.approvals) || {};
+    const approved = { backgrounds: Number((ap.backgrounds || {}).credits) || 0, motion: Number((ap.motion || {}).credits) || 0 };
+    const spent = ledger
+      ? { backgrounds: R.spentOn(ledger, 'background'), motion: R.spentOn(ledger, 'motion') }
+      : { backgrounds: Object.values((b && b.backgrounds) || {}).reduce((s, x) => s + (Number(x.credits) || 0), 0),
+          motion: ((b && b.panels) || []).reduce((s, p) => s + (Number((p.motion || {}).credits) || 0), 0) };
+    creditsSpent = spent.backgrounds + spent.motion;
+    creditsCeiling = approved.backgrounds + approved.motion;
+    credits = { approved, spent, landings: ledger ? ledger.length : null };
+  }
+  return { tokens, turns, runs, untracked, byItem, bySeat, orchestrator, total: tokens + orchestrator.tokens, creditsSpent, creditsCeiling, credits };
 }
 
 // Merge the tally into the project document on the board's next push.

@@ -5,7 +5,7 @@
 //        --prompt-file <spawn-prompt.txt> [--output-file rough-edl.json] [--trace-file <trace.json>]
 //        [--model sonnet] [--turns 9] [--tokens 51900] [--status done|running]
 //
-// Writes runs/{item}-v{n}.json and queues the same record for the board's runs collection.
+// Writes runs/{item}-v{n}.json (a second spawn on the same version: -r2, -r3) and queues the same record for the board's runs collection.
 // The output file defaults to the one record-version.js recorded for this item and number; a
 // finished run with nothing to show is refused, not recorded empty.
 // Exit 0 recorded · 2 usage · 3 a named file is missing, or no version to take the output from
@@ -66,9 +66,12 @@ const rec = {
   finishedAt: status === 'done' ? new Date().toISOString() : null,
 };
 fs.mkdirSync(path.join(dir, 'runs'), { recursive: true });
-const out = path.join(dir, 'runs', item + '-v' + n + '.json');
+// One record per spawn: a retry on the same version gets its own file, so its tokens add up.
+const slot = require('./lib-runs.js').runSlot(dir, item, n);
+rec.attempt = slot.attempt;
+const out = slot.file;
 fs.writeFileSync(out, JSON.stringify(rec, null, 2) + '\n');
-board.appendOutbox(process.cwd(), client, jobId, { collection: 'runs', docId: item + '-v' + n, data: { ...rec, trace: JSON.stringify(rec.trace).length > 20000 ? [] : rec.trace, prompt: rec.prompt.slice(0, 20000), output: rec.output.slice(0, 40000) } });
+board.appendOutbox(process.cwd(), client, jobId, { collection: 'runs', docId: slot.id, data: { ...rec, trace: JSON.stringify(rec.trace).length > 20000 ? [] : rec.trace, prompt: rec.prompt.slice(0, 20000), output: rec.output.slice(0, 40000) } });
 // The project's running cost, so the slate card and the Cost box never lag a run.
 require('./tally-cost.js').queue(board, process.cwd(), client, jobId, dir);
 console.log('Run recorded: ' + ws.fwd(out) + '. Queued for the board.');

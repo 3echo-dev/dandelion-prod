@@ -26,6 +26,8 @@ if (!J || !['plan', 'run', 'add', 'status'].includes(cmd)) { console.error('usag
 const job = J.job();
 const rec = J.read('mograph.json', null) || { schemaVersion: '1.0', items: [] };
 const save = () => J.write('mograph.json', rec);
+// Each render or supplied overlay is a row in the board's Versions list (file path, no player).
+const toBoard = it => require('./lib-board.js').appendOutbox(process.cwd(), J.client, J.jobId, { collection: 'media', docId: 'mograph-' + it.n + '-' + Date.now().toString(36), data: { kind: 'mograph', item: 'mograph', key: String(it.n), name: (it.template || 'overlay') + ' ' + it.n, v: null, file: it.file, sha256: it.sha256, credits: 0, at: it.renderedAt || L.nowIso() } });
 const OVERLAYS = ['title', 'endtag', 'captions'];
 
 function probe(f) {
@@ -59,7 +61,7 @@ if (cmd === 'add') {
   const n = rec.items.reduce((m, i) => Math.max(m, i.n), 0) + 1;
   const dest = path.join(dir, 'supplied_' + n + path.extname(f)); fs.copyFileSync(f, dest);
   rec.items.push({ n, source: 'supplied', template: 'supplied', start, durationSec: info.duration, status: 'rendered', file: L.fwd(dest), sha256: L.sha256File(dest), note: L.opt(argv, '--note') });
-  save(); console.log('overlay ' + n + ' added at ' + start + ' s (' + info.duration.toFixed(2) + ' s)'); process.exit(0);
+  save(); toBoard(rec.items[rec.items.length - 1]); console.log('overlay ' + n + ' added at ' + start + ' s (' + info.duration.toFixed(2) + ' s)'); process.exit(0);
 }
 if (cmd === 'run') {
   const s = M.status();
@@ -75,6 +77,7 @@ if (cmd === 'run') {
     if (r.status !== 0) { it.status = 'failed'; save(); console.error('overlay ' + it.n + ' failed; see ' + out + '.log'); process.exit(1); }
     Object.assign(it, { status: 'rendered', file: L.fwd(out), sha256: L.sha256File(out), preview: fs.existsSync(out + '.png') ? L.fwd(out + '.png') : null, renderedAt: L.nowIso() });
     save();
+    toBoard(it);
   }
   console.log(todo.length + ' overlay(s) rendered');
   process.exit(0);

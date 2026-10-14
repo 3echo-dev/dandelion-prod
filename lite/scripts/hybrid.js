@@ -21,6 +21,7 @@ const fs = require('fs');
 const path = require('path');
 const { spawnSync } = require('child_process');
 const L = require('./lib-job.js');
+const R = require('./lib-runs.js');
 
 const argv = process.argv.slice(2);
 const J = L.open(argv);
@@ -88,7 +89,8 @@ if (cmd === 'brief') {
         ].filter(Boolean).join(' '),
         promptOverride: old.promptOverride || null,
         referenceFrame: frame, lookReferences: lookRefs, ratio: job.aspectRatio || '16:9',
-        idempotencyKey: J.jobId + '/background/' + key.replace(/\s+/g, '-'),
+        idempotencyKey: old.idempotencyKey || (J.jobId + '/background/' + key.replace(/\s+/g, '-')),
+        v: old.v || null, history: old.history || [],
         quotedCredits: old.quotedCredits || null, jobRef: old.jobRef || null, credits: old.credits || null, panels: [],
       };
     }
@@ -131,27 +133,41 @@ if (cmd === 'land') {
   const ap = (b.approvals || {}).backgrounds;
   if (!ap) { console.error('no background approval on record; nothing lands without a yes to the credit question on the board'); process.exit(3); }
   if (ap.keys && !ap.keys.includes(key)) { console.error(bg.name + ' is outside the approved backgrounds (' + ap.keys.join(', ') + ')'); process.exit(3); }
-  const spent = Object.values(b.backgrounds).reduce((s, x) => s + (Number(x.credits) || 0), 0) + (Number(L.opt(argv, '--credits')) || 0);
+  // Spend so far comes from the credit ledger, which keeps every landing (a redo included).
+  const ledger = R.readCredits(J.dir);
+  const before = ledger ? R.spentOn(ledger, 'background') : Object.values(b.backgrounds).reduce((s, x) => s + (Number(x.credits) || 0), 0);
+  const credits = Number(L.opt(argv, '--credits')) || 0;
+  const spent = before + credits;
   if (ap.credits != null && spent > ap.credits) { console.error('this would take background spend to ' + spent + ' credit(s), over the ' + ap.credits + ' approved; ask again'); process.exit(3); }
   L.ensureDir(bgDir);
   let src = L.opt(argv, '--file'); let ext = src ? path.extname(src) : '.png';
   const url = L.opt(argv, '--url');
   if (url) { const tmp = path.join(bgDir, '.dl-' + Date.now()); const r = spawnSync('curl', ['-sSL', '--fail', '-o', tmp, url], { encoding: 'utf8' }); if (r.status !== 0) { console.error('download failed: ' + (r.stderr || r.error)); process.exit(1); } src = tmp; ext = /\.mp4|video/i.test(url) ? '.mp4' : '.png'; }
   if (!src || !fs.existsSync(src)) { console.error('land needs --file <png|jpg|mp4> or --url <media url>'); process.exit(2); }
-  const dest = path.join(bgDir, key.replace(/\s+/g, '-') + ext.toLowerCase());
+  // Every landing is its own file (<location>-v1.png, -v2 ...): a redo never overwrites the take before it.
+  const { file: dest, v } = R.nextVersionFile(bgDir, key.replace(/\s+/g, '-'), ext.toLowerCase());
   fs.copyFileSync(src, dest); if (url) fs.unlinkSync(src);
-  Object.assign(bg, { status: 'delivered', file: L.fwd(dest), sha256: L.sha256File(dest), landedAt: L.nowIso() });
-  if (L.opt(argv, '--job-ref')) bg.jobRef = L.opt(argv, '--job-ref'); if (L.opt(argv, '--credits')) bg.credits = Number(L.opt(argv, '--credits'));
+  Object.assign(bg, { status: 'delivered', file: L.fwd(dest), sha256: L.sha256File(dest), landedAt: L.nowIso(), v });
+  if (L.opt(argv, '--job-ref')) bg.jobRef = L.opt(argv, '--job-ref');
+  if (credits) bg.credits = (Number(bg.credits) || 0) + credits;
+  bg.history = [...(bg.history || []), { v, file: bg.file, sha256: bg.sha256, credits, jobRef: L.opt(argv, '--job-ref') || null, landedAt: bg.landedAt }];
+  // A redo is a new submission: the next generation for this place carries a key of its own.
+  if (bg.source === 'generate') bg.idempotencyKey = J.jobId + '/background/' + key.replace(/\s+/g, '-') + '/v' + (v + 1);
+  R.appendCredit(J.dir, { kind: 'background', key, v, credits, jobRef: L.opt(argv, '--job-ref') || null, file: bg.file });
   // A new background voids the composites made over the old one.
   for (const p of b.panels) if (p.background === key && p.composite) { p.composite = null; p.status = p.cutout ? 'cut-out' : 'plate'; }
   writeBrief(b);
+  const B = require('./lib-board.js');
+  B.appendOutbox(process.cwd(), J.client, J.jobId, { collection: 'media', docId: 'bg-' + key.replace(/\s+/g, '-') + '-v' + v, data: { kind: 'background', item: 'hybrid', key, name: bg.name, v, file: bg.file, sha256: bg.sha256, credits, jobRef: bg.jobRef || null, panels: bg.panels || [], at: bg.landedAt } });
+  require('./tally-cost.js').queue(B, process.cwd(), J.client, J.jobId, J.dir);
   const left = Object.values(b.backgrounds).filter(x => x.source === 'generate' && x.status !== 'delivered').length;
-  console.log(bg.name + ' landed: ' + path.basename(dest) + '. ' + (left ? left + ' background(s) still to generate.' : 'Every location has a background; run composite.py.'));
+  console.log(bg.name + ' landed: ' + path.basename(dest) + (v > 1 ? ' (take ' + v + ')' : '') + '. ' + (left ? left + ' background(s) still to generate.' : 'Every location has a background; run composite.py.') + ' Board updates queued; push them.');
   process.exit(0);
 }
 if (cmd === 'status') {
   const b = readBrief(); const bgs = Object.values(b.backgrounds);
-  console.log('hybrid: ' + b.panels.filter(p => p.composite).length + '/' + b.panels.filter(p => p.plate).length + ' composited, ' + b.panels.filter(p => p.keep).length + ' kept; backgrounds ' + bgs.filter(x => ['provided', 'delivered'].includes(x.status)).length + '/' + bgs.length + ' ready; credits spent ' + bgs.reduce((s, x) => s + (Number(x.credits) || 0), 0));
+  const ledger = R.readCredits(J.dir);
+  console.log('hybrid: ' + b.panels.filter(p => p.composite).length + '/' + b.panels.filter(p => p.plate).length + ' composited, ' + b.panels.filter(p => p.keep).length + ' kept; backgrounds ' + bgs.filter(x => ['provided', 'delivered'].includes(x.status)).length + '/' + bgs.length + ' ready; credits spent ' + (ledger ? R.spentOn(ledger, 'background') : bgs.reduce((s, x) => s + (Number(x.credits) || 0), 0)));
   for (const p of b.panels) console.log('  ' + p.id + ' ' + p.status + (p.cutout ? ' · cut-out ' + p.cutout.method : '') + (p.motion ? ' · motion ' + p.motion.status : '') + (p.composite ? ' · actor kept ' + p.composite.actorPreservedPct + '%' : '') + (p.background ? ' · ' + b.backgrounds[p.background].name : ''));
   process.exit(0);
 }

@@ -27,6 +27,7 @@ const path = require('path');
 const { spawnSync } = require('child_process');
 const ws = require('./lib-workspace.js');
 const board = require('./lib-board.js');
+const R = require('./lib-runs.js');
 
 const argv = process.argv.slice(2);
 const opt = n => { const i = argv.indexOf(n); return i >= 0 && argv[i + 1] ? argv[i + 1] : null; };
@@ -131,18 +132,31 @@ if (cmd === 'land') {
   if (!ap) { console.error('no motion-transfer approval on record; nothing lands without a yes from the board'); process.exit(3); }
   if (ap.panels && !ap.panels.includes(String(p.id).toUpperCase())) { console.error(p.id + ' is outside the approved panels (' + ap.panels.join(', ') + ')'); process.exit(3); }
   if ((ap.refs || {})[p.id] !== p.motion.refVideoSha + ':' + p.motion.backgroundSha) { console.error(p.id + ': the plate or background changed since the yes; ask again'); process.exit(3); }
+  // The same cap the backgrounds have: motion spend, redos included, never passes what was approved.
+  const ledger = R.readCredits(dir);
+  const credits = Number(opt('--credits')) || 0;
+  const before = ledger ? R.spentOn(ledger, 'motion') : brief.panels.reduce((s, x) => s + (Number((x.motion || {}).credits) || 0), 0);
+  if (ap.credits != null && before + credits > ap.credits) { console.error('this would take motion spend to ' + (before + credits) + ' credit(s), over the ' + ap.credits + ' approved; ask again'); process.exit(3); }
   board.ensureDir(path.join(motionDir, 'raw'));
-  const dest = path.join(motionDir, 'raw', p.id + '.mp4');
+  // Every landing is its own file (P03-v1.mp4, -v2 ...): a redo never overwrites the take before it.
+  const { file: dest, v } = R.nextVersionFile(path.join(motionDir, 'raw'), p.id, '.mp4');
   if (opt('--url')) { const tmp = dest + '.dl'; const r = spawnSync('curl', ['-sSL', '--fail', '-o', tmp, opt('--url')], { encoding: 'utf8' }); if (r.status !== 0) { console.error('download failed: ' + (r.stderr || r.error)); process.exit(1); } fs.renameSync(tmp, dest); }
   else if (opt('--file') && fs.existsSync(opt('--file'))) fs.copyFileSync(opt('--file'), dest);
   else { console.error('land needs --url <media url> or --file <mp4>'); process.exit(2); }
   const info = probe(dest); if (!info || !info.duration) { fs.unlinkSync(dest); console.error('the landed file is not a readable video'); process.exit(1); }
-  Object.assign(p.motion, { status: 'delivered', file: fwd(dest), sha256: board.sha256File(dest), durationOut: Math.round(info.duration * 1000) / 1000, landedAt: new Date().toISOString() });
-  if (opt('--job-ref')) p.motion.jobRef = opt('--job-ref'); if (opt('--credits')) p.motion.credits = Number(opt('--credits'));
+  Object.assign(p.motion, { status: 'delivered', file: fwd(dest), sha256: board.sha256File(dest), durationOut: Math.round(info.duration * 1000) / 1000, landedAt: new Date().toISOString(), v });
+  if (opt('--job-ref')) p.motion.jobRef = opt('--job-ref');
+  if (credits) p.motion.credits = (Number(p.motion.credits) || 0) + credits;
+  p.motion.history = [...(p.motion.history || []), { v, file: p.motion.file, sha256: p.motion.sha256, credits, jobRef: opt('--job-ref') || null, landedAt: p.motion.landedAt }];
+  // A redo is a new submission with a key of its own.
+  p.motion.idempotencyKey = jobId + '/motion/' + p.id + '/' + String(p.motion.refVideoSha).slice(0, 8) + '/v' + (v + 1);
+  R.appendCredit(dir, { kind: 'motion', key: p.id, v, credits, jobRef: opt('--job-ref') || null, file: p.motion.file });
   p.composite = null;
   save();
+  board.appendOutbox(process.cwd(), client, jobId, { collection: 'media', docId: 'motion-' + p.id + '-v' + v, data: { kind: 'motion', item: 'hybrid', key: p.id, name: p.id + ' moving background', v, file: p.motion.file, sha256: p.motion.sha256, credits, jobRef: p.motion.jobRef || null, panels: [p.id], durationSec: p.motion.durationOut, at: p.motion.landedAt } });
+  require('./tally-cost.js').queue(board, process.cwd(), client, jobId, dir);
   const left = brief.panels.filter(x => x.motion && x.motion.status !== 'delivered').map(x => x.id);
-  console.log(p.id + ' landed: ' + path.basename(dest) + ' (' + p.motion.durationOut + ' s). ' + (left.length ? 'Still to generate: ' + left.join(', ') + '.' : 'Every motion panel has its clip; run composite.py.'));
+  console.log(p.id + ' landed: ' + path.basename(dest) + ' (' + p.motion.durationOut + ' s' + (v > 1 ? ', take ' + v : '') + '). ' + (left.length ? 'Still to generate: ' + left.join(', ') + '.' : 'Every motion panel has its clip; run composite.py.') + ' Board updates queued; push them.');
   process.exit(0);
 }
 if (cmd === 'status') {
