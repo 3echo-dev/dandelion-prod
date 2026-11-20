@@ -27,6 +27,16 @@ and the board, and asks before it installs anything.
 | Context | the new world, per scene if it differs: "the street becomes a 1920s shophouse row at golden hour" |
 | Deliver | the master, or the master plus a Nuke script per replaced shot |
 
+## One shot, one ask
+
+Not every piece of work is a first cut. For one clip or one still (relight it, change its background,
+make a matte of the pack, regenerate part of a frame behind your own matte, take people out, animate
+from one frame to another) just say what you want; the `shot-task` skill runs it. Each task has a
+folder under `workspaces/{client}/tasks/` with every take as its own numbered file
+(`harbour-v01.png`, `-v02`), every quote, every yes and every credit. What you asked to keep is put
+back from your original, pixel for pixel, behind your matte, and what could not be pasted is
+measured and reported.
+
 ## The steps
 
 intake → research → references → catalogue → interrogate → look → **Gate A, Look sign-off** →
@@ -70,8 +80,8 @@ the board. The plugin brings its own AgentC connection; sign in once with `/mcp`
 ## Tests
 
 ```
-node lite/scripts/test/run-all.js
+node lite/scripts/test/run-all.js      # includes task.test.js, the shot task end to end
 node research/test/server.test.mjs
 ```
 
-The end-to-end test needs ffmpeg, Python and Pillow, and runs in a temporary folder.
+The end-to-end tests need ffmpeg, Python, Pillow and numpy, and runs in a temporary folder.

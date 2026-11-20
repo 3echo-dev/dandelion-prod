@@ -22,7 +22,7 @@ const run = (c, a) => { try { return spawnSync(c, a, { encoding: 'utf8', timeout
 const has = (c, a) => run(c, a).status === 0;
 const PY = has('python', ['--version']) ? 'python' : has('python3', ['--version']) ? 'python3' : null;
 
-const MODS = ['PIL', 'rembg', 'onnxruntime'];
+const MODS = ['PIL', 'numpy', 'rembg', 'onnxruntime'];
 let mods = {};
 if (PY) {
   const r = run(PY, ['-c', 'import importlib.util as u, json; print(json.dumps({m: u.find_spec(m) is not None for m in ' + JSON.stringify(MODS) + '}))']);
@@ -35,6 +35,7 @@ const CHECKS = [
   { name: 'node', need: 'required', ok: has('node', ['--version']), for: 'every script', install: mac ? 'brew install node' : 'winget install OpenJS.NodeJS.LTS' },
   { name: 'python', need: 'required', ok: !!PY, for: 'catalogue, cut-out, composite, grade, render', install: mac ? 'brew install python' : 'winget install Python.Python.3.12' },
   { name: 'Pillow', need: 'required', ok: !!mods.PIL, for: 'previews, contact sheets, cut-out, composite', install: pip + ' pillow' },
+  { name: 'numpy', need: 'required', ok: !!mods.numpy, for: 'cut-out, composite, and the shot-task tools (paste-back, compare)', install: pip + ' numpy' },
   { name: 'mograph', need: 'optional', ok: MOGRAPH.status().ok, for: 'motion graphics: titles, end tags, captions (the 3echo Motion composer)', install: 'node "' + path.join(PLUGIN_ROOT, 'scripts', 'mograph-setup.js') + '"   (one time, needs network, a few minutes)' },
   { name: 'rembg', need: 'optional', ok: !!(mods.rembg && mods.onnxruntime), for: 'cutting out people shot without a green or blue screen (screen shots do not need it)', install: pip + ' "rembg[cpu]"   (CPU; on Windows/Linux with an NVIDIA card, "rembg[gpu]" in its own venv is faster)' },
 ];
