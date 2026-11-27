@@ -60,6 +60,9 @@ quoting: regenerate behind a matte, clean plate, relight, new background with th
 a matte across a clip, people out of a clip, one frame to another, a product pack and its turn. Its
 order matters: a clean plate before a regenerate, a check before a paste.
 
+Every prompt's camera, lens and move: the `camera-director` skill. A shot the person filmed keeps
+its own camera (Describe); only new B-roll, a product turn or frame-to-frame takes get a chosen one.
+
 ## Report
 
 After every take: the file in `takes/`, its numbers, anything flagged with its picture

@@ -62,6 +62,7 @@ Inputs: `research.json`, `interrogation.json` (each shot's location key, light a
 
 - One entry in `locations` for every location key the interrogation marks `replace`, spelled the same. A key the research did not have gets its own description and a line in your summary, so the scraper can be sent back for it.
 - The prompt matches the shots: the light direction and quality the interrogation saw, a locked-off framing for static shots. It never asks for people or text.
+- Camera and lens words come from `${CLAUDE_PLUGIN_ROOT}/lite/skills/camera-director/references/camera-words.md` (the table for the interrogator's `camera` values first). Describe the camera the shots have; never add a move.
 - Leave out what the research settled (summary, era, grade, palette, mograph, queries, sources): the look inherits them. Write one only to change it, and say why in your summary.
 
 Save to `.tmp/look.json`, `record.js {client} {job-id} look --file <it>`, fix until it exits 0.
